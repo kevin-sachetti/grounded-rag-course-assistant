@@ -1,0 +1,52 @@
+name: tcc-chatbot
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: tcc_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tcc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tcc}
+      POSTGRES_DB: ${POSTGRES_DB:-tcc}
+    ports:
+      - "5432:5432"
+    volumes:
+      # Volume nomeado: bind mount do Windows quebra as permissões do Postgres.
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tcc} -d ${POSTGRES_DB:-tcc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    container_name: tcc_api
+    restart: unless-stopped
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tcc}:${POSTGRES_PASSWORD:-tcc}@db:5432/${POSTGRES_DB:-tcc}
+      UPLOAD_DIR: /data/uploads
+      # O backend Xet do HuggingFace falhou no meio do download do reranker
+      # (CAS Client Error). Força o download HTTP clássico, que é estável.
+      HF_HUB_DISABLE_XET: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+      # Cache dos modelos (e5-large e bge-reranker, ~2,2 GB cada; Whisper ~140 MB).
+      # Sem isso, cada rebuild baixa tudo de novo.
+      - modelcache:/root/.cache
+
+volumes:
+  pgdata:
+  modelcache:

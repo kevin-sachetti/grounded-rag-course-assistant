@@ -1,0 +1,74 @@
+from functools import lru_cache
+from uuid import UUID, uuid5
+
+from langchain_postgres import PGVector
+
+from app.adapters.embeddings import get_embeddings
+from app.infra.config import settings
+
+COLLECTION = "material_chunks"
+
+
+@lru_cache
+def get_vectorstore() -> PGVector:
+    """Vector store no Postgres/pgvector (via LangChain). Guarda chunks + vetores."""
+    return PGVector(
+        embeddings=get_embeddings(),
+        collection_name=COLLECTION,
+        connection=settings.database_url,
+        use_jsonb=True,
+        async_mode=True,
+    )
+
+
+def chunk_ids(material_id: UUID, chunk_count: int) -> list[str]:
+    """Ids determinísticos dos chunks de um material.
+
+    Derivados do material_id, então dá para recalculá-los depois sem
+    guardar lista nenhuma — é o que permite apagar os vetores de um
+    material quando ele é excluído ou reprocessado.
+    """
+    return [str(uuid5(material_id, str(i))) for i in range(chunk_count)]
+
+
+async def add_chunks(course_id: UUID, material_id: UUID, chunks: list[str]) -> None:
+    """Indexa os chunks de um material, guardando course_id/material_id nos metadados."""
+    metadatas = [
+        {
+            "course_id": str(course_id),
+            "material_id": str(material_id),
+            "chunk_index": i,
+        }
+        for i in range(len(chunks))
+    ]
+    await get_vectorstore().aadd_texts(
+        texts=chunks,
+        metadatas=metadatas,
+        ids=chunk_ids(material_id, len(chunks)),
+    )
+
+
+async def delete_chunks(material_id: UUID, chunk_count: int) -> None:
+    """Remove do índice os vetores de um material.
+
+    Sem isso, apagar um material deixaria os trechos dele no índice e o
+    chatbot continuaria respondendo com conteúdo que o professor removeu.
+    """
+    if chunk_count <= 0:
+        return
+    await get_vectorstore().adelete(ids=chunk_ids(material_id, chunk_count))
+
+
+async def search(course_id: UUID, query: str, k: int = 4):
+    """Busca os k chunks mais similares à pergunta, restrito a um curso.
+
+    O filtro por course_id garante que o chatbot de um curso só enxerga o
+    material daquele curso.
+
+    Devolve pares (documento, nota). A nota é *relevância normalizada* entre
+    0 e 1, onde MAIOR = mais parecido — e não a distância bruta (onde menor
+    seria melhor). É essa escala que o similarity_threshold usa.
+    """
+    return await get_vectorstore().asimilarity_search_with_relevance_scores(
+        query, k=k, filter={"course_id": str(course_id)}
+    )
