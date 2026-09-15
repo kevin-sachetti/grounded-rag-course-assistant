@@ -6,7 +6,7 @@ Registro do que foi medido durante o desenvolvimento, com os números obtidos e 
 
 | Item | Valor |
 |---|---|
-| Sistema | Windows 11 Pro, Docker Desktop (backend WSL2) |
+| Sistema | Windows 11 Pro, Docker Desktop (backend Hyper-V) |
 | CPU disponível para o Docker | 12 núcleos |
 | RAM disponível para o Docker | 2 GB nos experimentos 1 a 3; 8 GB no experimento 4 |
 | Execução dos modelos | CPU, sem GPU |
