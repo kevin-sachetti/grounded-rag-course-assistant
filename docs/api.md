@@ -48,7 +48,7 @@ Os materiais ficam numa biblioteca única. Cada chat escolhe quais deles usa.
 curl -X POST http://localhost:8000/materials -F "file=@contents/fotossintese.txt"
 ```
 
-O tipo é detectado pela extensão, ou pelo `content-type` se a extensão não for reconhecida:
+O tipo é detectado pela extensão do arquivo:
 
 | Tipo | Extensões | Como o texto é extraído |
 |---|---|---|
@@ -56,7 +56,6 @@ O tipo é detectado pela extensão, ou pelo `content-type` se a extensão não f
 | `video` | mp4, mov, mkv, avi, webm | Transcrição com o Whisper |
 | `pdf` | pdf | Texto das páginas, com o pypdf |
 | `text` | txt, md | Leitura direta (UTF-8) |
-| `other` | qualquer outra | Não suportado: o processamento termina em `error` |
 
 **Resposta `201`.** O material é registrado na hora com `status: "pending"`, e o processamento acontece em segundo plano:
 
@@ -68,6 +67,8 @@ O tipo é detectado pela extensão, ou pelo `content-type` se a extensão não f
   "media_type": "text",
   "status": "pending",
   "chunk_count": 0,
+  "stage": null,
+  "progress": null,
   "created_at": "2026-11-20T01:55:03.635555Z",
   "updated_at": "2026-11-20T01:55:03.635555Z"
 }
@@ -78,7 +79,20 @@ O tipo é detectado pela extensão, ou pelo `content-type` se a extensão não f
 | `pending` | Recebido, aguardando processamento |
 | `processing` | Extraindo o texto, dividindo em trechos e gerando os vetores |
 | `done` | Pronto para ser usado nos chats; `chunk_count` diz quantos trechos gerou |
-| `error` | Falhou; os detalhes ficam no log da API |
+| `error` | Falhou (por exemplo, um PDF escaneado, sem texto); os detalhes ficam no log da API |
+
+Enquanto o material está em `processing`, `stage` diz a etapa atual (por exemplo, `"transcrevendo o áudio"` ou `"gerando os vetores"`) e `progress` o percentual do processamento inteiro, de 0 a 100. Nos demais status, os dois vêm `null`. O progresso fica na memória da API: se ela reiniciar no meio, o material continua em `processing` sem percentual.
+
+**Envio recusado** — nada é gravado:
+
+| Código | Quando |
+|---|---|
+| `409` | Já existe um material com o mesmo nome, sem diferenciar maiúsculas de minúsculas |
+| `413` | O arquivo passa de `MAX_UPLOAD_MB` (1.024 MB) |
+| `415` | Formato não suportado |
+| `422` | Arquivo vazio ou sem nome |
+
+O nome guardado é só o nome do arquivo, sem pastas: `../../aula.txt` vira `aula.txt`.
 
 ### `GET /materials` — listar
 

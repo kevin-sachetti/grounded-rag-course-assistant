@@ -3,13 +3,13 @@ import { onMounted, ref } from "vue";
 
 import type { MediaType } from "../api/types";
 import { useChatsStore } from "../stores/chats";
-import { useMaterialsStore } from "../stores/materials";
+import { MAX_UPLOAD_MB, SUPPORTED_EXT, useMaterialsStore } from "../stores/materials";
 import { useUiStore } from "../stores/ui";
 import { statusLabel } from "../utils/format";
 import AppIcon from "./AppIcon.vue";
 import BaseModal from "./BaseModal.vue";
 
-const ACCEPT = ".txt,.md,.pdf,.mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.mov,.mkv,.avi,.webm";
+const ACCEPT = SUPPORTED_EXT.map((e) => `.${e}`).join(",");
 
 const store = useMaterialsStore();
 const chats = useChatsStore();
@@ -65,12 +65,18 @@ async function remove(id: string) {
     >
       <AppIcon name="upload" :size="26" />
       <p class="drop-title">Arraste arquivos ou clique para enviar</p>
-      <p class="drop-hint">Texto, Markdown, PDF, áudio (mp3, wav, m4a…) e vídeo (mp4, mov…)</p>
+      <p class="drop-hint">Texto, Markdown, PDF, áudio (mp3, wav, m4a…) e vídeo (mp4, mov…), até {{ MAX_UPLOAD_MB / 1024 }} GB</p>
       <input ref="input" type="file" multiple :accept="ACCEPT" hidden @change="pick" />
     </div>
 
     <p v-if="store.uploading" class="note">Enviando {{ store.uploading }} arquivo(s)…</p>
     <p v-if="store.error" class="form-error">{{ store.error }}</p>
+    <div v-if="store.rejected.length" class="rejected" role="alert">
+      <p class="form-error">Não enviado:</p>
+      <ul>
+        <li v-for="r in store.rejected" :key="r" class="form-error">{{ r }}</li>
+      </ul>
+    </div>
 
     <p v-if="!store.materials.length && !store.loading" class="empty">
       A biblioteca está vazia. Os materiais enviados aqui podem ser usados em qualquer chat.
@@ -85,7 +91,20 @@ async function remove(id: string) {
             <span class="badge" :class="badge(m.status)">{{ statusLabel(m.status) }}</span>
             <span v-if="m.status === 'done'">{{ m.chunk_count }} {{ m.chunk_count === 1 ? "trecho" : "trechos" }}</span>
             <span v-if="m.status === 'error'">não foi possível ler este arquivo</span>
+            <span v-if="m.status === 'pending'">aguardando a vez</span>
+            <span v-if="m.status === 'processing' && m.stage">{{ m.stage }} · {{ m.progress ?? 0 }}%</span>
           </span>
+          <div
+            v-if="m.status === 'pending' || m.status === 'processing'"
+            class="progress"
+            :class="{ waiting: m.progress == null }"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="m.progress ?? undefined"
+          >
+            <span :style="{ width: m.progress != null ? `${m.progress}%` : undefined }" />
+          </div>
         </div>
 
         <div v-if="confirming === m.id" class="confirm">
@@ -190,6 +209,47 @@ async function remove(id: string) {
   gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--text-faint);
+}
+
+.progress {
+  position: relative;
+  height: 4px;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.6s ease;
+}
+
+/* Sem percentual (na fila): um trecho da barra vai e volta. */
+.progress.waiting span {
+  width: 30%;
+  animation: waiting 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes waiting {
+  from { transform: translateX(-10%); }
+  to { transform: translateX(240%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress.waiting span { animation: none; width: 100%; opacity: 0.35; }
+}
+
+.rejected ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.rejected .form-error {
+  margin: 0;
 }
 
 .confirm {

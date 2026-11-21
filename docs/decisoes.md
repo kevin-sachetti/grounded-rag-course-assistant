@@ -262,7 +262,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 **A rever:** com gravações longas de aula, medindo qualidade e tempo do `base` contra o `small`.
 ## D14 — Infraestrutura
 
-**Escolha: execução local com Docker Compose**, conforme a proposta. Uma hospedagem em nuvem foi avaliada e descartada pelo custo mensal (D10). Um único comando, ou o `iniciar.bat` no Windows, sobe o banco, o modelo de linguagem, a API e a interface.
+**Escolha: execução local com Docker Compose**, conforme a proposta. Uma hospedagem em nuvem foi avaliada e descartada pelo custo mensal (D10). Um único comando sobe o banco, o modelo de linguagem, a API e a interface.
 
 Decisões de ambiente, cada uma motivada por um problema concreto:
 

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from functools import lru_cache
 from uuid import UUID, uuid5
 
@@ -31,16 +32,31 @@ def chunk_ids(material_id: UUID, chunk_count: int) -> list[str]:
     return [str(uuid5(material_id, str(i))) for i in range(chunk_count)]
 
 
-async def add_chunks(material_id: UUID, chunks: list[str]) -> None:
-    """Indexa os chunks de um material, guardando material_id e posição nos metadados."""
-    metadatas = [
-        {"material_id": str(material_id), "chunk_index": i} for i in range(len(chunks))
-    ]
-    await get_vectorstore().aadd_texts(
-        texts=chunks,
-        metadatas=metadatas,
-        ids=chunk_ids(material_id, len(chunks)),
-    )
+async def add_chunks(
+    material_id: UUID,
+    chunks: list[str],
+    on_progress: Callable[[float], None] | None = None,
+    batch_size: int = 8,
+) -> None:
+    """Indexa os chunks de um material, guardando material_id e posição nos metadados.
+
+    Grava em lotes para poder informar o progresso (`on_progress` recebe a
+    fração concluída, de 0 a 1): gerar os vetores é a etapa demorada.
+    """
+    ids = chunk_ids(material_id, len(chunks))
+    store = get_vectorstore()
+    for start in range(0, len(chunks), batch_size):
+        end = start + batch_size
+        await store.aadd_texts(
+            texts=chunks[start:end],
+            metadatas=[
+                {"material_id": str(material_id), "chunk_index": i}
+                for i in range(start, min(end, len(chunks)))
+            ],
+            ids=ids[start:end],
+        )
+        if on_progress:
+            on_progress(min(end, len(chunks)) / len(chunks))
 
 
 async def delete_chunks(material_id: UUID, chunk_count: int) -> None:

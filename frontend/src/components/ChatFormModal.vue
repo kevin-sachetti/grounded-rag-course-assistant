@@ -30,6 +30,14 @@ const saving = ref(false);
 const error = ref<string | null>(null);
 const confirmDelete = ref(false);
 
+// Validação: os avisos só aparecem depois da primeira tentativa de salvar.
+const tried = ref(false);
+const nameError = computed(() => (form.name.trim() ? null : "Dê um nome ao chat."));
+const materialsError = computed(() =>
+  form.material_ids.length ? null : "Escolha pelo menos um material para o chat usar.",
+);
+const nameInput = ref<HTMLInputElement | null>(null);
+
 onMounted(materials.load);
 
 function toggleMaterial(id: string) {
@@ -39,10 +47,12 @@ function toggleMaterial(id: string) {
 }
 
 async function save() {
-  if (!form.name.trim()) {
-    error.value = "Dê um nome ao chat.";
+  tried.value = true;
+  if (nameError.value) {
+    nameInput.value?.focus();
     return;
   }
+  if (materialsError.value) return;
   saving.value = true;
   error.value = null;
   try {
@@ -78,11 +88,22 @@ const fmt = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2,
     <form class="form" @submit.prevent="save">
       <label class="field">
         <span class="field-label">Nome</span>
-        <input v-model="form.name" class="input" maxlength="200" placeholder="Biologia — fotossíntese" autofocus />
+        <input
+          ref="nameInput"
+          v-model="form.name"
+          class="input"
+          :class="{ invalid: tried && nameError }"
+          maxlength="200"
+          placeholder="Biologia — fotossíntese"
+          :aria-invalid="tried && !!nameError"
+          autofocus
+        />
+        <span v-if="tried && nameError" class="field-error">{{ nameError }}</span>
       </label>
 
-      <fieldset class="group">
+      <fieldset class="group" :class="{ invalid: tried && materialsError }">
         <legend class="field-label">Materiais que este chat usa</legend>
+        <span v-if="tried && materialsError" class="field-error">{{ materialsError }}</span>
         <p v-if="!materials.materials.length" class="hint">
           A biblioteca está vazia.
           <button type="button" class="link" @click="ui.openModal('materials')">Enviar materiais</button>
@@ -191,6 +212,19 @@ const fmt = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2,
 .group legend {
   margin-bottom: var(--space-3);
   padding: 0;
+}
+
+.field-error {
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+
+.input.invalid {
+  border-color: var(--danger);
+}
+
+.group.invalid .check {
+  border-color: var(--danger);
 }
 
 .hint {

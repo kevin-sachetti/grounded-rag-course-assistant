@@ -48,7 +48,7 @@ Tudo roda na sua máquina: os modelos de transcrição, busca, re-ranqueamento e
 | Internet | só na primeira execução, para baixar os modelos |
 | Placa de vídeo | opcional — com uma NVIDIA as respostas ficam ~6 vezes mais rápidas |
 
-### Pelo terminal
+### Passo a passo
 
 1. Instale e abra o Docker Desktop.
 2. Baixe o projeto:
@@ -73,14 +73,6 @@ Com placa de vídeo NVIDIA (driver atualizado e Docker Desktop no modo WSL 2), s
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
-
-### Pelos scripts (Windows)
-
-1. Instale o [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-2. Baixe o projeto pelo botão **Code → Download ZIP** do GitHub e extraia.
-3. Dê dois cliques em **`iniciar.bat`**.
-
-O script abre o Docker se estiver fechado, usa a placa de vídeo NVIDIA se houver, sobe o sistema e abre o navegador em **http://localhost:8080** quando estiver pronto. Para desligar, dê dois cliques em **`parar.bat`**.
 
 ### Primeira execução
 
@@ -132,6 +124,7 @@ Os valores padrão estão em `backend/app/infra/config.py` e podem ser trocados 
 | `CHAT_HISTORY_MESSAGES` | `6` | Mensagens anteriores que o agente recebe |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1400` / `200` | Tamanho dos trechos, em caracteres |
 | `WHISPER_MODEL_SIZE` | `base` | Tamanho do modelo de transcrição |
+| `MAX_UPLOAD_MB` | `1024` | Tamanho máximo de um arquivo enviado |
 
 Temperatura, relevância mínima, trechos por resposta, re-ranqueamento e agente são ajustados **por chat**.
 
@@ -173,8 +166,6 @@ Temperatura, relevância mínima, trechos por resposta, re-ranqueamento e agente
 ├── data/                      arquivos enviados (criada ao rodar, fica fora do Git)
 ├── docker-compose.yml         sobe banco, modelo de linguagem, API e interface
 ├── docker-compose.gpu.yml     usa a placa NVIDIA, se houver
-├── iniciar.bat                sobe o sistema e abre o navegador (Windows)
-├── parar.bat                  desliga o sistema (Windows)
 ├── LICENSE                    todos os direitos reservados
 └── README.md
 ```

@@ -118,6 +118,8 @@ sequenceDiagram
 ```
 
 - **A interface não espera o processamento.** A resposta sai com `pending`, e a lista de materiais se atualiza sozinha até o status mudar.
+- **O progresso é real.** Cada etapa informa quanto já fez: a transcrição pelo avanço do Whisper no áudio, o PDF por página e os vetores por lote de trechos. A API devolve a etapa e o percentual junto com o material, e a interface mostra uma barra. Esse progresso fica na memória da API, porque o processamento também roda nela.
+- **O envio é validado antes de gravar:** formato, tamanho (até 1 GB), arquivo vazio e nome repetido. O nome do arquivo perde qualquer pasta, para não gravar fora da pasta de envios.
 - **Transcrição e divisão rodam em uma thread separada** (`asyncio.to_thread`). Sem isso, a API inteira pararia de responder enquanto um vídeo é transcrito.
 - **Os trechos recebem ids determinísticos**, derivados do id do material (`uuid5(material_id, índice)`). Guardando só a quantidade de trechos, é possível recalcular os ids e apagar os vetores quando o material é excluído ou reprocessado.
 - **O texto completo fica salvo** na tabela `materials`, porque a ferramenta de resumo do agente precisa do material inteiro.
@@ -310,7 +312,7 @@ Com placa NVIDIA, o arquivo `docker-compose.gpu.yml` reserva a placa para o Olla
 | Limitação | Consequência |
 |---|---|
 | Tabelas criadas com `create_all` na subida, sem migrações | Uma mudança de schema exige recriar as tabelas e perder os dados |
-| Upload lido inteiro na memória, sem limite de tamanho na API (o nginx aceita até 1 GB) | Um arquivo muito grande pode esgotar a memória da API |
+| Upload lido inteiro na memória antes de ser gravado, até o limite de 1 GB | Um arquivo perto do limite ocupa essa memória na API enquanto é recebido |
 | Processamento em segundo plano não é persistente | Se a API reiniciar no meio, o material fica parado em `processing` |
 | Sem autenticação | Feito para uso local, por uma pessoa; qualquer um com acesso ao endereço vê tudo |
 | A recusa do agente depende de ele buscar antes de responder | As instruções exigem a busca, mas é uma regra comportamental |

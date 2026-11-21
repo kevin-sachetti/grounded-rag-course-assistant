@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     # Armazenamento de arquivos (storage adapter local)
     upload_dir: str = "/data/uploads"
+    # Tamanho máximo de um arquivo enviado. Igual ao limite do nginx da interface.
+    max_upload_mb: int = 1024
 
     # Ingestão
     whisper_model_size: str = "base"  # tamanho do modelo Whisper (tiny/base/small/medium)

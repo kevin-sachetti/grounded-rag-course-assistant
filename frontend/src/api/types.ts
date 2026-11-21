@@ -10,6 +10,9 @@ export interface Material {
   media_type: MediaType;
   status: MaterialStatus;
   chunk_count: number;
+  /** Só durante o processamento: etapa atual e percentual (0 a 100). */
+  stage?: string | null;
+  progress?: number | null;
   created_at: string;
   updated_at: string;
 }
