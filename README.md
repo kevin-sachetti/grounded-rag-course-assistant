@@ -1,4 +1,8 @@
-# Grounded RAG Assistant
+<p align="center">
+  <img src="frontend/src/assets/grounded-icon.svg" alt="Grounded RAG Assistant" width="140">
+</p>
+
+<h1 align="center">Grounded RAG Assistant</h1>
 
 Assistente de inteligência artificial que responde **apenas com base no material que o usuário fornece** — documentos, PDFs, áudios e vídeos. Quando a resposta não está no material, ele avisa em vez de inventar, e cada resposta mostra de quais trechos veio.
 
@@ -17,6 +21,20 @@ Tudo roda na sua máquina: os modelos de transcrição, busca, re-ranqueamento e
 1. Em **Materiais**, envie os arquivos (clique ou arraste). O processamento aparece na lista e termina sozinho.
 2. Em **Novo chat**, dê um nome, escolha os materiais e, se quiser, ajuste os parâmetros.
 3. Pergunte. Em cada resposta, **Entender a resposta** mostra o que o agente fez, cada trecho encontrado com o material de origem e as notas da busca e do re-ranqueamento, quais trechos foram usados e as duas versões da resposta.
+
+## Telas
+
+**Conversa.** Cada resposta mostra de quais materiais veio. Quando o material não responde, a recusa aparece com visual próprio.
+
+![Conversa com uma resposta e uma recusa](docs/img/conversa.png)
+
+**Entender a resposta.** O painel mostra o que o agente fez e cada trecho encontrado, com a nota da busca e a do re-ranqueamento, e se o trecho foi usado ou descartado.
+
+![Painel com os trechos encontrados e suas notas](docs/img/trechos.png)
+
+**Trecho aberto.** Ao clicar num trecho, ele se expande e mostra o texto completo que sustentou a resposta.
+
+![Trecho expandido com o texto completo](docs/img/trecho-aberto.png)
 
 ## Rodar na sua máquina
 
