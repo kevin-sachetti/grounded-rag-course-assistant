@@ -15,12 +15,13 @@ Cada decisão com o contexto, as alternativas avaliadas e o motivo da escolha. D
 | D7 | Tamanho dos trechos | 1.400 caracteres, sobreposição de 200 | Provisória |
 | D8 | Quantidade de trechos | k = 3, com 7 candidatos | Provisória |
 | D9 | Re-ranqueamento | bge-reranker-v2-m3 | Definida |
-| D10 | Uso de LLM | Mínimo; OpenAI, tier mais barato | Provisória |
-| D11 | Limiar de relevância | 0,6 sobre a nota do re-ranqueador | Provisória |
-| D12 | Arquitetura agêntica | Agente com ferramentas restritas ao material | Implementada, não testada |
+| D10 | Modelo de linguagem | Qwen3.5 4B, local, via Ollama | Definida |
+| D11 | Limiar de relevância | 0,6 sobre a nota do re-ranqueador, ajustável por chat | Provisória |
+| D12 | Arquitetura agêntica | Agente com ferramentas restritas ao material | Implementada e testada |
 | D13 | Transcrição | Whisper `base` | Provisória |
-| D14 | Infraestrutura | Execução local com Docker | Definida |
-| D15 | Frontend | Vue + TypeScript | Só o framework definido |
+| D14 | Infraestrutura | Execução local com Docker Compose | Definida |
+| D15 | Frontend | Vue + TypeScript, Vite e Pinia | Implementada |
+| D16 | Organização do uso | Biblioteca de materiais e chats com parâmetros próprios | Definida |
 
 ---
 
@@ -50,7 +51,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 
 ## D3 — Banco de dados: PostgreSQL + pgvector
 
-**Contexto.** O sistema precisa guardar dados relacionais (cursos e materiais) e fazer busca por similaridade de vetores.
+**Contexto.** O sistema precisa guardar dados relacionais (materiais, chats e mensagens) e fazer busca por similaridade de vetores.
 
 **Alternativas avaliadas:**
 
@@ -67,7 +68,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 **Motivo.**
 
 - Um banco só guarda os dados relacionais e os vetores.
-- Os dados são naturalmente relacionais: curso → materiais → trechos.
+- Os dados são naturalmente relacionais: chats ↔ materiais → trechos, e chats → mensagens.
 - Roda localmente em Docker.
 - Tem caminho direto para a nuvem: o mesmo pgvector existe no Amazon Aurora e no RDS, sem mudança de código.
 
@@ -77,7 +78,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 
 **Motivo.**
 
-- **LangChain** padroniza os componentes: divisão de texto, embeddings, banco vetorial e LLM. Trocar um modelo ou um banco muda uma linha, não o sistema.
+- **LangChain** padroniza os componentes: divisão de texto, embeddings, banco vetorial, LLM e ferramentas (`@tool`). Trocar um modelo ou um banco muda uma linha, não o sistema.
 - **LangGraph** modela o processamento como um grafo de estados, com arestas condicionais e ciclos. O pipeline usa as arestas condicionais; o agente depende do ciclo agente → ferramentas → agente, que um encadeamento linear não expressa.
 
 ## D5 — Organização do código
@@ -87,7 +88,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 | Opção | Característica |
 |---|---|
 | Por camada técnica (`models/`, `routes/`, `services/`) | Simples, mas cada funcionalidade fica espalhada em várias pastas |
-| Por funcionalidade (`courses/`, `materials/`, `chat/`) | Coesa, mas mistura regra de negócio com processamento de IA e integrações |
+| Por funcionalidade (`materials/`, `chats/`) | Coesa, mas mistura regra de negócio com processamento de IA e integrações |
 
 **Escolha: modelo híbrido em quatro camadas.**
 
@@ -154,7 +155,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 **Motivo.**
 
 - A literatura aponta pico de desempenho (F1) em k = 3.
-- No modo extrativo os trechos vão direto para o aluno ler: 3 trechos de 1.400 caracteres são legíveis, 4 ou mais viram um bloco de texto grande demais.
+- No modo extrativo os trechos vão direto para o usuário ler: 3 trechos de 1.400 caracteres são legíveis, 4 ou mais viram um bloco de texto grande demais.
 - Os candidatos foram reduzidos de 20 para 7 sem nenhuma perda de qualidade — ver [experimento 3](experimentos.md#experimento-3--quantos-candidatos-o-re-ranqueamento-precisa).
 
 ## D9 — Re-ranqueamento: bge-reranker-v2-m3
@@ -178,44 +179,41 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 
 **Por que não o jina.** Com o tempo em 6,5 s, o ganho estimado de cerca de 2 s não compensava a execução de código de terceiros nem o risco de perder qualidade.
 
-## D10 — Uso de LLM *(provisória)*
+## D10 — Modelo de linguagem: Qwen3.5 4B, local
 
-**Contexto.** A chamada ao LLM é a única parte com custo por uso. A proposta prevê o LLM para reformular perguntas e melhorar a clareza das respostas — não para ser a fonte do conhecimento.
+**Contexto.** A proposta prevê o LLM para reformular perguntas e deixar as respostas mais claras, não para ser a fonte do conhecimento. Com o agente (D12), toda pergunta passa pelo LLM, e o modelo precisa suportar chamada de ferramentas.
 
 **Evolução da decisão:**
 
-1. **Primeira versão:** duas chamadas por pergunta, uma para avaliar se os trechos serviam e outra para redigir a resposta.
-2. **Avaliação removida:** a decisão de relevância passou para as notas de similaridade, sem LLM, deixando uma chamada por pergunta.
-3. **Reformulação desligada por padrão:** para avaliar a recuperação isoladamente, sem custo — se os trechos vierem errados, nenhum LLM corrige.
+1. **Primeira versão:** OpenAI no tier mais barato, com custo por uso.
+2. **Hospedagem em nuvem avaliada e descartada:** o custo mensal de manter o sistema no ar não se justificava para o trabalho.
+3. **Modelo local:** tudo roda na máquina do usuário, sem custo por uso e sem enviar o material para fora.
 
-**Provedor e modelo: OpenAI, no tier mais barato** (`gpt-5.4-nano`).
+**Alternativas locais avaliadas:**
 
-**Modelos descartados:**
-
-| Modelo | Motivo |
+| Modelo | Por que não |
 |---|---|
-| `gpt-3.5-turbo` | API desligada pela OpenAI em 23/10/2026 |
-| `gpt-4o-mini` | Saiu da página oficial de preços, substituído por gerações novas |
+| Qwen3 4B | Escrevia o próprio raciocínio dentro da resposta mesmo com o modo de raciocínio desligado |
+| Modelos de 7 a 8 B | Não cabem com folga nos 8 GB de memória do Docker junto com os modelos de busca |
 
-**Pendente:** o nome `gpt-5.4-nano` e seus preços vieram de fontes de terceiros e precisam ser confirmados na conta da OpenAI antes do uso.
+**Escolha: `qwen3.5:4b` via Ollama**, com o modo de raciocínio desligado (`LLM_REASONING=false`) e contexto de 8.192 tokens.
 
-**Ordem de grandeza de custo**, com preços de terceiros (US$ 0,20 por milhão de tokens de entrada e US$ 1,25 de saída) e cerca de 2.100 tokens de entrada e 310 de saída por pergunta:
+**Motivo.** Suporta chamada de ferramentas, ocupa cerca de 3,3 GB e roda só com processador. Com placa NVIDIA, o arquivo `docker-compose.gpu.yml` acelera as respostas cerca de 6 vezes.
 
-| Modo | Chamadas por pergunta | Custo estimado a cada mil perguntas |
-|---|---|---|
-| Pipeline reformulado | 1 | cerca de US$ 0,80 |
-| Agente | 2 a 4, com mais contexto | alguns dólares |
+**Tempo medido:** 7 a 18 s por pergunta ao agente com placa (RTX 3060) e 35 a 40 s só com processador.
 
+**Provedores comerciais mantidos como opção:** `LLM_PROVIDER=openai` ou `anthropic`, com a chave correspondente no `backend/.env`.
+
+**Temperatura:** definida em cada chat, com padrão 0,6.
 ## D11 — Limiar de relevância: 0,6 *(provisória)*
 
-**Escolha: 0,6.**
+**Escolha: 0,6 sobre a nota do re-ranqueador**, como padrão de cada chat. O usuário pode alterar o valor na tela do chat.
 
-**Situação.** Sobre as notas da busca vetorial esse limiar não funciona (experimento 1). Sobre as notas do re-ranqueador ele separa bem os casos testados: mantém 0,99 e 0,98, descarta 0,43 e recusa a pergunta sem relação (0,0003).
+**Situação.** Sobre as notas da busca vetorial esse limiar não funciona (experimento 1). Sobre as notas do re-ranqueador ele separa bem os casos testados: mantém 0,99 e 0,98, descarta 0,43 e recusa a pergunta sem relação (0,0003). Nos testes de validação com 8 materiais, as perguntas do assunto tiveram notas de 0,91 a 0,999 e as de fora, de 0 a 0,001.
 
-**Onde é aplicado hoje:** só na ferramenta de busca do agente. O pipeline ainda não corta trechos pela nota.
+**Onde é aplicado:** nos dois modos. No fluxo fixo, sem trecho aceito o fluxo vai para a recusa; no agente, a ferramenta de busca devolve o aviso de que nada relevante foi encontrado.
 
 **A rever:** com um conjunto maior de perguntas, incluindo perguntas do mesmo assunto geral que não estão no material.
-
 ## D12 — Arquitetura agêntica
 
 **Contexto.** O projeto evoluiu de um RAG com caminho fixo para uma arquitetura agêntica.
@@ -241,7 +239,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 
 **Risco identificado.** Mais autonomia pode enfraquecer a principal promessa do trabalho, a de responder só com o material autorizado.
 
-**Solução — autonomia de estratégia, não de fonte.** Todas as ferramentas leem apenas o material do curso, e o curso é fixado na montagem das ferramentas, não informado pelo modelo. O agente decide como procurar, mas não tem acesso a nenhuma fonte externa. Ver [arquitetura](arquitetura.md#fluxo-3--agente).
+**Solução — autonomia de estratégia, não de fonte.** Todas as ferramentas leem apenas os materiais do chat, e a lista de materiais é fixada na montagem das ferramentas, não informada pelo modelo. O agente decide como procurar, mas não tem acesso a nenhuma fonte externa. Ver [arquitetura](arquitetura.md#modo-agente-padrão).
 
 **Custos aceitos:**
 
@@ -249,7 +247,9 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 - o comportamento deixa de ser determinístico;
 - são várias chamadas por pergunta.
 
-**O pipeline fixo foi mantido** (`USE_AGENT=false`), o que permite comparar as duas arquiteturas com as mesmas perguntas.
+**O fluxo fixo foi mantido**: cada chat pode desligar o agente, o que permite comparar as duas arquiteturas com as mesmas perguntas.
+
+**Ajuste após os testes.** Nos primeiros testes com 8 materiais, o agente às vezes pedia esclarecimento ou respondia pelo histórico em vez de buscar, e uma vez corrigiu por conhecimento próprio um nome transcrito errado. As instruções passaram a exigir uma busca nova, com os termos da pergunta atual, para toda pergunta sobre um assunto, a reservar o esclarecimento para perguntas sem assunto identificável e a manter os nomes como estão no material. Depois do ajuste, os 16 casos de teste deram o resultado esperado em duas rodadas seguidas — ver [experimentos](experimentos.md#testes-com-8-materiais-reais).
 
 **Relação com a proposta.** Um dos objetivos específicos já previa usar o modelo de linguagem para reformular perguntas, que é a base do RAG agêntico.
 
@@ -257,13 +257,12 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 
 **Escolha atual: `base`** (74 M parâmetros).
 
-**Situação.** Ainda não foi testado com áudio real. Português é menos bem atendido que inglês por esses modelos, e o `base` tende a errar termos técnicos. O `small` (244 M) costuma ser o mínimo recomendável para material educacional em português.
+**Situação.** Testado com 2 áudios e 2 vídeos reais em português, cerca de 15 minutos no total, transcritos em menos de 2 minutos. O texto ficou legível e permitiu responder às perguntas, mas com erros em nomes próprios (por exemplo, "Caixias do Sul" e "Rádio Kojima"). O `small` (244 M) costuma ser o mínimo recomendável para material educacional em português.
 
-**A rever:** com gravações reais de aula, medindo qualidade e tempo.
-
+**A rever:** com gravações longas de aula, medindo qualidade e tempo do `base` contra o `small`.
 ## D14 — Infraestrutura
 
-**Escolha: execução local com Docker Compose**, conforme a proposta. Uma hospedagem em nuvem, apenas para demonstração, fica para depois.
+**Escolha: execução local com Docker Compose**, conforme a proposta. Uma hospedagem em nuvem foi avaliada e descartada pelo custo mensal (D10). Um único comando, ou o `iniciar.bat` no Windows, sobe o banco, o modelo de linguagem, a API e a interface.
 
 Decisões de ambiente, cada uma motivada por um problema concreto:
 
@@ -276,6 +275,10 @@ Decisões de ambiente, cada uma motivada por um problema concreto:
 | `HF_HUB_DISABLE_XET=1` | O download do re-ranqueador falhou no meio pelo backend Xet do HuggingFace (*CAS Client Error*); o download HTTP clássico é estável |
 | 8 GB de RAM para o Docker | Com 2 GB a API travava ao carregar os dois modelos — ver [experimento 4](experimentos.md#experimento-4--memória-disponível-para-o-docker) |
 | Teto `pgvector<0.4` | Exigência do `langchain-postgres` 0.0.17 |
+| Ollama em contêiner próprio, com `ollama-init` | O modelo de linguagem é baixado sozinho na primeira subida, e as seguintes funcionam sem internet |
+| Banco e Ollama sem porta publicada | Não conflitam com um PostgreSQL ou Ollama que já exista na máquina |
+| `docker-compose.gpu.yml` separado | Quem não tem placa NVIDIA sobe normalmente; quem tem acrescenta o arquivo e ganha velocidade |
+| Interface servida pelo nginx, que repassa `/api` à API | Um único endereço para o usuário, sem configuração de CORS |
 
 ## D15 — Frontend: Vue + TypeScript
 
@@ -287,10 +290,29 @@ Decisões de ambiente, cada uma motivada por um problema concreto:
 | Curva de aprendizado | Mais íngreme | Mais suave |
 | Organização | Mais decisões a tomar | Roteamento e estado oficiais |
 
-**Escolha: Vue com TypeScript.**
+**Escolha: Vue 3 com TypeScript**, preparado pelo **Vite**, com o estado compartilhado no **Pinia** e estilos próprios, sem biblioteca de componentes.
 
-**Situação.** **Só o framework está definido.** Telas, funcionalidades e aparência ainda não foram decididos. O código em `frontend/` é um rascunho, não uma versão aprovada.
+**Interface implementada:**
 
+- menu lateral com "Materiais", "Novo chat" e a lista de chats;
+- biblioteca de materiais, com envio por clique ou arraste e situação do processamento atualizada sozinha;
+- criação e edição de chat, com nome, materiais e parâmetros, cada um com uma explicação curta;
+- conversa, com animação de raízes enquanto a resposta é gerada e visual próprio para a recusa;
+- painel "entender a resposta", com o que o agente fez, cada trecho com as notas e as duas versões da resposta.
+
+**Identidade visual:** uma árvore dividida ao meio, com a copa de um lado em folhas e do outro em rede neural, e as raízes alcançando arquivos. Representa a ideia do trabalho: o que a IA produz depende do que as raízes buscam no material.
+
+## D16 — Organização do uso: biblioteca e chats
+
+**Contexto.** A primeira versão organizava os materiais por curso, e cada pergunta era feita a um curso.
+
+**Escolha: uma biblioteca única de materiais e chats criados pelo usuário.** Cada chat escolhe os materiais que usa e tem os próprios parâmetros: temperatura, relevância mínima, trechos por resposta, re-ranqueamento e agente.
+
+**Motivo.**
+
+- O mesmo material pode servir a vários chats sem ser enviado e processado de novo.
+- Os parâmetros por chat permitem comparar configurações com o mesmo material, o que também apoia os experimentos.
+- A conversa fica guardada, e o agente usa as últimas mensagens para entender perguntas como "e o outro?".
 ---
 
 ## Referências

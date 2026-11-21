@@ -1,0 +1,14 @@
+# Liga a placa de vídeo NVIDIA para o modelo de linguagem.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+# Exige placa NVIDIA com driver atualizado e o Docker Desktop no modo WSL 2.
+# Respostas ficam cerca de 6 vezes mais rápidas que só no processador.
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

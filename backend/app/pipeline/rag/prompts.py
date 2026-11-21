@@ -1,5 +1,5 @@
-ANSWER_TEMPLATE = """Você é um assistente educacional de um curso. Responda à \
-pergunta do aluno usando SOMENTE os trechos do material fornecidos abaixo.
+ANSWER_TEMPLATE = """Você é um assistente que responde perguntas usando SOMENTE \
+os trechos do material do usuário fornecidos abaixo.
 
 Regras:
 - Use apenas a informação dos trechos. Não use conhecimento externo.
@@ -12,3 +12,10 @@ Trechos do material:
 Pergunta: {question}
 
 Resposta:"""
+
+# Mensagem fixa da recusa: não passa pelo LLM, então não há como ele
+# "completar" a resposta com conhecimento próprio.
+REFUSAL_MESSAGE = (
+    "Não encontrei no material deste chat informação suficiente para "
+    "responder a essa pergunta."
+)

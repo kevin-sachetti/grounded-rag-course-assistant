@@ -1,7 +1,6 @@
 import math
 from functools import lru_cache
 
-from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
 from app.infra.config import settings
@@ -9,7 +8,7 @@ from app.infra.config import settings
 
 @lru_cache
 def get_reranker() -> CrossEncoder:
-    """Cross-encoder usado para reordenar os candidatos. Carregado uma vez.
+    """Cross-encoder usado para reavaliar os candidatos. Carregado uma vez.
 
     Diferente do modelo de embeddings, ele recebe pergunta e trecho JUNTOS e
     devolve uma nota de relevância — por isso separa muito melhor, mas não dá
@@ -34,16 +33,13 @@ def _to_relevance(raw_scores) -> list[float]:
     return [1.0 / (1.0 + math.exp(-s)) for s in scores]
 
 
-def rerank(
-    question: str, documents: list[Document], top_k: int
-) -> tuple[list[Document], list[float]]:
-    """Reordena os documentos por relevância à pergunta e devolve os top_k."""
-    if not documents:
-        return [], []
+def score(question: str, texts: list[str]) -> list[float]:
+    """Nota de relevância (0 a 1) de cada texto para a pergunta, na mesma ordem.
 
-    pairs = [(question, doc.page_content) for doc in documents]
-    scores = _to_relevance(get_reranker().predict(pairs))
-
-    ranked = sorted(zip(documents, scores), key=lambda ds: ds[1], reverse=True)
-    best = ranked[:top_k]
-    return [doc for doc, _ in best], [score for _, score in best]
+    Não corta nem reordena: quem chama decide o que fazer com as notas. Assim
+    a nota de todos os candidatos fica disponível para o painel da interface.
+    """
+    if not texts:
+        return []
+    pairs = [(question, t) for t in texts]
+    return _to_relevance(get_reranker().predict(pairs))

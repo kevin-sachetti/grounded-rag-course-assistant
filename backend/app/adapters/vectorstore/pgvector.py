@@ -31,15 +31,10 @@ def chunk_ids(material_id: UUID, chunk_count: int) -> list[str]:
     return [str(uuid5(material_id, str(i))) for i in range(chunk_count)]
 
 
-async def add_chunks(course_id: UUID, material_id: UUID, chunks: list[str]) -> None:
-    """Indexa os chunks de um material, guardando course_id/material_id nos metadados."""
+async def add_chunks(material_id: UUID, chunks: list[str]) -> None:
+    """Indexa os chunks de um material, guardando material_id e posição nos metadados."""
     metadatas = [
-        {
-            "course_id": str(course_id),
-            "material_id": str(material_id),
-            "chunk_index": i,
-        }
-        for i in range(len(chunks))
+        {"material_id": str(material_id), "chunk_index": i} for i in range(len(chunks))
     ]
     await get_vectorstore().aadd_texts(
         texts=chunks,
@@ -52,23 +47,27 @@ async def delete_chunks(material_id: UUID, chunk_count: int) -> None:
     """Remove do índice os vetores de um material.
 
     Sem isso, apagar um material deixaria os trechos dele no índice e o
-    chatbot continuaria respondendo com conteúdo que o professor removeu.
+    assistente continuaria respondendo com conteúdo que o usuário removeu.
     """
     if chunk_count <= 0:
         return
     await get_vectorstore().adelete(ids=chunk_ids(material_id, chunk_count))
 
 
-async def search(course_id: UUID, query: str, k: int = 4):
-    """Busca os k chunks mais similares à pergunta, restrito a um curso.
+async def search(material_ids: list[UUID], query: str, k: int = 4):
+    """Busca os k chunks mais similares à pergunta, só entre os materiais dados.
 
-    O filtro por course_id garante que o chatbot de um curso só enxerga o
-    material daquele curso.
+    O filtro por material_id garante que um chat só enxerga os materiais
+    escolhidos para ele.
 
     Devolve pares (documento, nota). A nota é *relevância normalizada* entre
     0 e 1, onde MAIOR = mais parecido — e não a distância bruta (onde menor
-    seria melhor). É essa escala que o similarity_threshold usa.
+    seria melhor).
     """
+    if not material_ids:
+        return []
     return await get_vectorstore().asimilarity_search_with_relevance_scores(
-        query, k=k, filter={"course_id": str(course_id)}
+        query,
+        k=k,
+        filter={"material_id": {"$in": [str(m) for m in material_ids]}},
     )

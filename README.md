@@ -1,163 +1,177 @@
-# Chatbot Educacional Customizável com Inteligência Artificial
+# Grounded RAG Assistant
 
-Trabalho de Conclusão de Curso — Análise e Desenvolvimento de Sistemas.
-*Título em revisão, acompanhando a evolução do projeto para uma arquitetura agêntica.*
+Assistente de inteligência artificial que responde **apenas com base no material que o usuário fornece** — documentos, PDFs, áudios e vídeos. Quando a resposta não está no material, ele avisa em vez de inventar, e cada resposta mostra de quais trechos veio.
 
-## O que é
+Tudo roda na sua máquina: os modelos de transcrição, busca, re-ranqueamento e o modelo de linguagem são locais e abertos. Nenhum conteúdo sai do computador e não há custo por uso.
 
-Um assistente conversacional que o educador alimenta com o material do próprio curso — vídeo, áudio, PDF ou texto. O sistema transcreve e indexa esse conteúdo e responde às dúvidas dos alunos **usando exclusivamente o material cadastrado**. Quando a resposta não está no material, ele informa isso em vez de inventar.
+## Como funciona
 
-Tecnicamente, é um sistema de **RAG (Retrieval-Augmented Generation)** com:
+- **Ingestão multimídia** — texto, PDF, áudio e vídeo (com transcrição automática pelo Whisper).
+- **Busca em dois estágios** — busca vetorial (`multilingual-e5-large`) seguida de re-ranqueamento (`bge-reranker-v2-m3`), que dá uma nota de relevância confiável a cada trecho.
+- **Recusa** — se nenhum trecho atinge a relevância mínima, o assistente diz que o material não responde.
+- **Agente** — o modelo de linguagem (`qwen3.5:4b`, via Ollama) escolhe como consultar o material: buscar, listar os assuntos, resumir ou pedir esclarecimento. Ele só tem ferramentas que leem o material do chat.
+- **Chats** — cada chat usa os materiais escolhidos da biblioteca e tem seus próprios parâmetros.
 
-- **ingestão multimídia** — transcrição automática de áudio e vídeo;
-- **recuperação em dois estágios** — busca vetorial densa seguida de re-ranqueamento por cross-encoder;
-- **dois modos de resposta** — um pipeline fixo e um agente que escolhe ferramentas, ambos restritos ao material do curso;
-- **execução local** — os modelos de embeddings, re-ranqueamento e transcrição rodam na própria máquina.
+## Como usar
 
-## Estado atual
+1. Em **Materiais**, envie os arquivos (clique ou arraste). O processamento aparece na lista e termina sozinho.
+2. Em **Novo chat**, dê um nome, escolha os materiais e, se quiser, ajuste os parâmetros.
+3. Pergunte. Em cada resposta, **Entender a resposta** mostra o que o agente fez, cada trecho encontrado com o material de origem e as notas da busca e do re-ranqueamento, quais trechos foram usados e as duas versões da resposta.
 
-| Parte | Situação |
+## Rodar na sua máquina
+
+### Requisitos
+
+| | Mínimo |
 |---|---|
-| API, banco e pgvector | ✅ testado |
-| Cursos (CRUD) | ✅ testado |
-| Upload e ingestão de arquivo de texto | ✅ testado |
-| Busca vetorial + re-ranqueamento | ✅ testado e medido — ver [experimentos](docs/experimentos.md) |
-| Exclusão de material (arquivo + vetores) | ✅ testado |
-| Ingestão de áudio, vídeo e PDF | ⚠️ implementado, não testado |
-| Resposta reformulada por LLM | ⚠️ implementado, não testado |
-| Agente com ferramentas | ⚠️ implementado, não testado |
-| Frontend | ⏳ a definir |
+| Programa | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
+| Memória para o Docker | 8 GB (o padrão do Docker Desktop numa máquina com 16 GB) |
+| Disco | ~15 GB (imagens + modelos) |
+| Internet | só na primeira execução, para baixar os modelos |
+| Placa de vídeo | opcional — com uma NVIDIA as respostas ficam ~6 vezes mais rápidas |
 
-## Stack
+### Pelo terminal
 
-| Camada | Tecnologia |
-|---|---|
-| Linguagem | Python 3.14 |
-| API | FastAPI |
-| Orquestração | LangChain + LangGraph |
-| Banco | PostgreSQL 17 + pgvector |
-| Embeddings | `intfloat/multilingual-e5-large` (local) |
-| Re-ranqueamento | `BAAI/bge-reranker-v2-m3` (local) |
-| Transcrição | Whisper (local) |
-| LLM | OpenAI (opcional, desligado por padrão) |
-| Infraestrutura | Docker Compose |
-| Frontend | Vue + TypeScript (a definir) |
-
-Os motivos de cada escolha estão em [docs/decisoes.md](docs/decisoes.md).
-
-## Pré-requisitos
-
-- **Docker Desktop.**
-- **8 GB de RAM liberados para o Docker** (*Settings → Resources → Memory*). Com 2 GB os modelos não cabem na memória e a API trava — ver [experimentos](docs/experimentos.md).
-- **Internet na primeira execução**: são baixados cerca de 4,5 GB de modelos, que depois ficam em cache.
-- **Chave da OpenAI** apenas para os modos que usam LLM, desligados por padrão.
-
-## Como rodar
-
-1. Criar o arquivo de variáveis de ambiente:
+1. Instale e abra o Docker Desktop.
+2. Baixe o projeto:
 
    ```bash
-   cp backend/.env.example backend/.env
+   git clone https://github.com/kevin-sachetti/grounded-rag-course-assistant.git
+   cd grounded-rag-course-assistant
    ```
 
-2. Subir o banco e a API:
+3. Suba tudo:
 
    ```bash
    docker compose up -d --build
    ```
 
-3. Conferir se está tudo de pé:
+4. Abra **http://localhost:8080**.
 
-   ```bash
-   curl http://localhost:8000/health
-   ```
+Para parar: `docker compose down`. Os materiais e as conversas ficam salvos.
 
-   Resposta esperada: `{"status":"ok","database":"connected","pgvector":true}`
-
-A documentação interativa da API (Swagger) fica em http://localhost:8000/docs.
-
-> A primeira ingestão baixa o modelo de embeddings e a primeira pergunta baixa o re-ranker, então as duas demoram bem mais que o normal. Os modelos ficam guardados no volume `modelcache`.
-
-## Uso rápido
+Com placa de vídeo NVIDIA (driver atualizado e Docker Desktop no modo WSL 2), suba com o arquivo extra:
 
 ```bash
-# 1. criar um curso (guarde o "id" da resposta)
-curl -X POST http://localhost:8000/courses -H "Content-Type: application/json" -d '{"name": "Biologia"}'
-
-# 2. enviar um material para o curso
-curl -X POST http://localhost:8000/courses/<course_id>/materials -F "file=@contents/fotossintese.txt"
-
-# 3. acompanhar o processamento até "status": "done"
-curl http://localhost:8000/materials/<material_id>
-
-# 4. perguntar
-curl -X POST http://localhost:8000/courses/<course_id>/chat -H "Content-Type: application/json" -d '{"question": "Como funciona o ciclo de Calvin?"}'
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
-Detalhes de cada endpoint em [docs/api.md](docs/api.md).
+### Pelos scripts (Windows)
+
+1. Instale o [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+2. Baixe o projeto pelo botão **Code → Download ZIP** do GitHub e extraia.
+3. Dê dois cliques em **`iniciar.bat`**.
+
+O script abre o Docker se estiver fechado, usa a placa de vídeo NVIDIA se houver, sobe o sistema e abre o navegador em **http://localhost:8080** quando estiver pronto. Para desligar, dê dois cliques em **`parar.bat`**.
+
+### Primeira execução
+
+A primeira execução demora: são baixados o modelo de linguagem (~3,3 GB) ao subir e os modelos de busca (~4,5 GB) no primeiro material enviado. Tudo fica guardado e as próximas execuções são rápidas, inclusive sem internet.
+
+### Tempo de resposta medido
+
+| | Com placa (RTX 3060) | Só processador (8 GB para o Docker) |
+|---|---|---|
+| Pergunta ao agente | 7 a 18 s | 35 a 40 s |
+| Primeira pergunta depois de subir | ~30 s | ~90 s (carrega os modelos) |
+
+## Estado atual
+
+| Parte | Situação |
+|---|---|
+| Biblioteca de materiais, chats e mensagens (API) | ✅ testado |
+| Ingestão de texto | ✅ testado |
+| Ingestão de PDF, áudio e vídeo | ✅ testado com 8 arquivos reais (4 PDFs, 2 áudios e 2 vídeos) — ver [experimentos](docs/experimentos.md#testes-com-8-materiais-reais) |
+| Busca em dois estágios e recusa por relevância | ✅ testado e medido — ver [experimentos](docs/experimentos.md) |
+| Agente com modelo local (Qwen3.5 4B) | ✅ testado, com histórico da conversa: 16 de 16 perguntas com o resultado esperado |
+| Interface: biblioteca de materiais, chats, conversa e painel "entender a resposta" | ✅ testada no navegador, no computador e no celular |
+
+A API também pode ser usada direto pela documentação interativa em http://localhost:8000/docs.
+
+## Stack
+
+| Camada | Tecnologia |
+|---|---|
+| Backend | Python 3.14, FastAPI, LangChain, LangGraph |
+| Banco | PostgreSQL 17 + pgvector |
+| Embeddings | `intfloat/multilingual-e5-large` |
+| Re-ranqueamento | `BAAI/bge-reranker-v2-m3` |
+| Transcrição | Whisper (`base`) |
+| Modelo de linguagem | `qwen3.5:4b` via Ollama (OpenAI e Anthropic seguem como opção) |
+| Frontend | Vue 3, TypeScript, Vite, Pinia, servido pelo nginx |
+| Infraestrutura | Docker Compose |
 
 ## Configuração
 
-As configurações ficam em `backend/app/infra/config.py` e podem ser sobrescritas no `backend/.env`, com o nome em maiúsculas. **Depois de alterar o `.env`, recrie o container** com `docker compose up -d` — só recarregar o código não aplica variáveis novas.
+Os valores padrão estão em `backend/app/infra/config.py` e podem ser trocados num arquivo `backend/.env`, com o nome em maiúsculas. Depois de alterar, recrie os contêineres com `docker compose up -d`.
 
 | Variável | Padrão | O que controla |
 |---|---|---|
-| `USE_AGENT` | `false` | Modo agente (`true`) ou pipeline fixo (`false`) |
-| `USE_LLM_REFORMULATION` | `false` | No pipeline, reformula a resposta com LLM |
-| `USE_RERANKER` | `true` | Liga o segundo estágio da recuperação |
-| `RETRIEVAL_CANDIDATES` | `7` | Trechos trazidos pela busca vetorial |
-| `RETRIEVAL_K` | `3` | Trechos que sobram depois do re-ranqueamento |
-| `SIMILARITY_THRESHOLD` | `0.6` | Relevância mínima (hoje aplicada só no agente) |
+| `LLM_MODEL` | `qwen3.5:4b` | Modelo de linguagem (baixado automaticamente) |
+| `LLM_PROVIDER` | `ollama` | `ollama`, `openai` ou `anthropic` |
+| `USE_LLM_REFORMULATION` | `true` | Com o agente desligado, reescreve a resposta com o modelo (`false` devolve os trechos crus) |
+| `RETRIEVAL_CANDIDATES` | `7` | Candidatos do primeiro estágio da busca |
+| `CHAT_HISTORY_MESSAGES` | `6` | Mensagens anteriores que o agente recebe |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1400` / `200` | Tamanho dos trechos, em caracteres |
-| `EMBEDDING_MODEL_NAME` | `intfloat/multilingual-e5-large` | Modelo de embeddings |
-| `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-v2-m3` | Modelo de re-ranqueamento |
 | `WHISPER_MODEL_SIZE` | `base` | Tamanho do modelo de transcrição |
-| `LLM_PROVIDER` / `LLM_MODEL` | `openai` / `gpt-5.4-nano` | Provedor e modelo de LLM |
-| `AGENT_MAX_STEPS` | `12` | Limite de passos do agente |
-| `OPENAI_API_KEY` | — | Chave da OpenAI |
 
-> Trocar `EMBEDDING_MODEL_NAME` exige reprocessar todos os materiais: vetores de modelos diferentes não são comparáveis.
+Temperatura, relevância mínima, trechos por resposta, re-ranqueamento e agente são ajustados **por chat**.
 
-## Modos de resposta
+## Documentação
 
-| Modo | Configuração | Usa LLM | Resposta |
-|---|---|---|---|
-| Pipeline extrativo *(padrão)* | `USE_AGENT=false`, `USE_LLM_REFORMULATION=false` | Não | Os trechos do material, sem alteração |
-| Pipeline reformulado | `USE_AGENT=false`, `USE_LLM_REFORMULATION=true` | 1 chamada | Texto redigido a partir dos trechos |
-| Agente | `USE_AGENT=true` | Várias chamadas | O modelo escolhe quais ferramentas usar |
+| Documento | Conteúdo |
+|---|---|
+| [Arquitetura](docs/arquitetura.md) | Partes do sistema, fluxos de ingestão e de resposta, garantias e modelo de dados |
+| [API](docs/api.md) | Rotas, formatos de entrada e saída e erros |
+| [Decisões técnicas](docs/decisoes.md) | Cada escolha, as alternativas avaliadas e o motivo |
+| [Experimentos](docs/experimentos.md) | O que foi medido e testado, com os números |
 
 ## Estrutura
 
 ```
-TCC/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py        entrada da API
-│   │   ├── features/      cursos, materiais e chat (rotas e regras de negócio)
-│   │   ├── pipeline/      ingestão, recuperação, pipeline RAG e agente
-│   │   ├── adapters/      integrações trocáveis: storage, embeddings, vectorstore, reranker, llm
-│   │   └── infra/         configuração, banco e logging
-│   ├── Dockerfile
-│   └── pyproject.toml
-├── frontend/              a definir
-├── contents/              materiais usados nos testes
-├── docker/postgres/       script que habilita o pgvector
-├── docs/                  documentação
-└── docker-compose.yml
+│   │   ├── main.py            cria a API e registra as rotas
+│   │   ├── features/          materiais e chats (rotas e regras)
+│   │   ├── pipeline/          ingestão, busca, fluxo fixo e agente
+│   │   ├── adapters/          armazenamento, embeddings, banco vetorial, re-ranqueador, LLM
+│   │   └── infra/             configuração, banco e logs
+│   ├── Dockerfile             imagem da API (Python, PyTorch para CPU e FFmpeg)
+│   └── pyproject.toml         dependências do backend
+├── frontend/
+│   ├── src/
+│   │   ├── components/        telas e partes da interface
+│   │   ├── stores/            estado compartilhado (Pinia)
+│   │   ├── api/               chamadas à API
+│   │   ├── styles/            cores e estilos
+│   │   ├── utils/             formatação
+│   │   └── assets/            ícone, árvore e folhas
+│   ├── Dockerfile             build com o Vite e entrega pelo nginx
+│   ├── nginx.conf             serve a interface e repassa /api para a API
+│   └── package.json           dependências do frontend
+├── contents/                  material usado nos testes
+├── docker/postgres/           script que habilita o pgvector
+├── docs/                      arquitetura, API, decisões técnicas e experimentos
+├── data/                      arquivos enviados (criada ao rodar, fica fora do Git)
+├── docker-compose.yml         sobe banco, modelo de linguagem, API e interface
+├── docker-compose.gpu.yml     usa a placa NVIDIA, se houver
+├── iniciar.bat                sobe o sistema e abre o navegador (Windows)
+├── parar.bat                  desliga o sistema (Windows)
+├── LICENSE                    todos os direitos reservados
+└── README.md
 ```
 
-## Documentação
+O detalhe de cada arquivo do backend e do frontend está em [docs/arquitetura.md](docs/arquitetura.md).
 
-- [Arquitetura](docs/arquitetura.md) — camadas, fluxos, modelo de dados e limitações
-- [Decisões técnicas](docs/decisoes.md) — o que foi escolhido, alternativas e motivos
-- [Experimentos](docs/experimentos.md) — o que foi medido e o que os resultados mostram
-- [API](docs/api.md) — endpoints, entradas e saídas
+## Licença
 
-## Limitações conhecidas
+© 2026 Kevin Sachetti Correa. Todos os direitos reservados. O código está disponível para consulta e avaliação acadêmica; cópia, modificação, distribuição ou uso, no todo ou em parte, dependem de autorização por escrito do autor. Ver [LICENSE](LICENSE).
 
-- As tabelas são criadas na subida da API, sem migrações — mudar o schema exige recriar tabelas.
-- O upload não valida tamanho nem tipo de arquivo.
-- Não há autenticação.
-- O processamento dos materiais não sobrevive a um reinício da API: um material pode ficar parado em `processing`.
+## Autor
 
-Detalhes em [docs/arquitetura.md](docs/arquitetura.md#limitações-conhecidas).
+**Kevin Sachetti Correa**
+
+- LinkedIn: [kevin-sachetti-correa](https://www.linkedin.com/in/kevin-sachetti-correa/)
+- GitHub: [kevin-sachetti](https://github.com/kevin-sachetti)
+- E-mail: kev.sachetti@gmail.com
+- Telefone: +55 51 98029-6088

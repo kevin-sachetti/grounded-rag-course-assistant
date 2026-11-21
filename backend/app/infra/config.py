@@ -31,21 +31,32 @@ class Settings(BaseSettings):
     chunk_size: int = 1400
     chunk_overlap: int = 200  # ~14% — cobre frases cortadas na fala contínua
 
-    # Modo de resposta.
-    # true  = agente: o LLM escolhe as ferramentas e quantas rodadas fazer
-    # false = pipeline fixo: recuperar → reordenar → responder
-    # Manter os dois permite comparar as duas arquiteturas.
-    use_agent: bool = False
-    agent_max_steps: int = 12  # teto de passos, evita loop infinito
+    # Agente ligado ou desligado é escolha de cada chat (tabela chats).
+    agent_max_steps: int = 12  # teto de passos do agente, evita loop infinito
 
-    # Reformulação da resposta pelo LLM (só vale no modo pipeline —
-    # no modo agente o LLM é sempre usado, ele é o próprio agente).
-    # DESLIGADA por padrão: a resposta devolve os trechos recuperados como estão.
-    # Ligar (true) quando quisermos comparar com a versão reformulada.
-    use_llm_reformulation: bool = False
+    # Reformulação da resposta pelo LLM no fluxo fixo (agente desligado).
+    # Ligada: com o LLM local não há custo por uso. Desligar (false) devolve
+    # os trechos como estão — útil para testar sem o Ollama de pé.
+    use_llm_reformulation: bool = True
 
-    llm_provider: str = "openai"  # openai | anthropic
-    llm_model: str = "gpt-5.4-nano"  # usado pelo agente e pela reformulação
+    # LLM local via Ollama (sem custo por uso). openai/anthropic seguem como opção.
+    llm_provider: str = "ollama"  # ollama | openai | anthropic
+    # Escolhido em teste com Qwen3 8B, Qwen3.5 4B e Granite 4.1 3B (16/11/2026):
+    # único que buscou antes de recusar, fez uma busca por assunto e usou a
+    # ferramenta de resumo, com 7 a 18 s por resposta no agente.
+    llm_model: str = "qwen3.5:4b"  # usado pelo agente e pela reformulação
+    ollama_base_url: str = "http://ollama:11434"
+    llm_reasoning: bool = False  # modo de raciocínio dos modelos que o têm
+    # Janela de contexto do Ollama, em tokens. O padrão dele (4096) não comporta
+    # o texto da ferramenta de resumo (~3.400 tokens) somado ao histórico.
+    llm_context_tokens: int = 8192
+
+    # Quantas mensagens anteriores do chat o agente recebe para entender
+    # perguntas de continuação ("e o que mais?"). 6 = as últimas 3 trocas.
+    chat_history_messages: int = 6
+
+    # Os valores abaixo são os INICIAIS de cada chat novo; depois cada chat
+    # guarda os seus (tabela chats).
     retrieval_k: int = 3  # trechos que sobram no final (pico de F1 na literatura)
 
     # Re-ranking (busca em dois estágios).
@@ -60,8 +71,8 @@ class Settings(BaseSettings):
     retrieval_candidates: int = 7  # candidatos do 1º estágio
 
     # Relevância mínima (0 a 1, na escala do re-ranqueador) para um trecho ser
-    # usado. Hoje aplicado só na ferramenta de busca do agente — o pipeline não
-    # corta por nota. As notas vêm na resposta do chat, para calibração.
+    # usado. Vale no fluxo fixo e no agente: sem trecho acima dela, recusa.
+    # Com o re-ranqueamento desligado, é comparada à nota da busca vetorial.
     similarity_threshold: float = 0.6
 
     openai_api_key: str = ""

@@ -138,24 +138,69 @@ Verificações de comportamento feitas após correções no backend.
 |---|---|---|
 | Ingestão de texto | 17 trechos, status `done`, texto salvo | 17 trechos, `done`, 16.730 caracteres salvos |
 | Exclusão de material remove vetores | Índice vai de 17 para 0 vetores | 17 → 0 |
-| Pergunta após excluir o material | Nenhum trecho encontrado | `"Não encontrei nada no material do curso."`, 0 fontes |
+| Pergunta após excluir o material | Nenhum trecho encontrado | Nenhum trecho, resposta de que nada foi encontrado |
 | Exclusão remove o arquivo | Arquivo apagado do disco | Apagado |
 | Resultados após refatoração da recuperação | Mesmas notas de antes | 0,9932 · 0,976 · 0,4282 e 0,0003 · 0 · 0 |
 
 ---
 
+## Testes com 8 materiais reais
+
+**Objetivo:** verificar a ingestão de PDF, áudio e vídeo, que até então só tinha sido testada com texto, e o comportamento do agente com o modelo local.
+
+**Ambiente:** o mesmo da tabela acima, mas com o Docker no WSL 2, o Qwen3.5 4B na placa de vídeo (RTX 3060) e os demais modelos no processador.
+
+**Materiais**, todos em português e com licença aberta:
+
+| # | Tipo | Assunto | Fonte | Trechos |
+|---|---|---|---|---|
+| 1 | PDF | Vulcões | Artigo "Vulcão" da Wikipédia (CC BY-SA) | 17 |
+| 2 | PDF | Abelhas | Artigo "Abelha" da Wikipédia (CC BY-SA) | 30 |
+| 3 | PDF | Xadrez | Artigo "Xadrez" da Wikipédia (CC BY-SA) | 94 |
+| 4 | PDF | História da divulgação científica no Brasil | Preprint de Carlos Fioravanti, SciELO Preprints (CC BY), 32 páginas | 66 |
+| 5 | Áudio | Rio Grande do Sul | Leitura de artigo da Wikipédia, Wikimedia Commons (CC BY-SA), 4,8 min | 3 |
+| 6 | Áudio | Metal Gear Solid | Leitura de artigo da Wikipédia, Wikimedia Commons (CC BY-SA), 1,6 min | 2 |
+| 7 | Vídeo | Ciência de superfícies | Aula, Wikimedia Commons (CC BY), 2,8 min | 2 |
+| 8 | Vídeo | Leveduras | Entrevista de pesquisadora da UFSCar, Wikimedia Commons (CC BY), 5,8 min | 3 |
+
+**Procedimento:** um chat para cada material, com os parâmetros padrão, e duas perguntas em sequência: uma que o material responde e uma de outro assunto, que deveria ser recusada.
+
+**Ingestão:** os 8 materiais terminaram como `done`. Os 4 áudios e vídeos, cerca de 15 minutos no total, foram transcritos em menos de 2 minutos. A transcrição ficou legível, com erros em nomes próprios (por exemplo, "Caixias do Sul" e "Rádio Kojima").
+
+**Resultado das perguntas:**
+
+| Rodada | Do assunto respondidas | De fora recusadas | Observação |
+|---|---|---|---|
+| 1 | 8 de 8 | 5 de 8 | Em 3 casos o agente pediu esclarecimento ou respondeu pelo histórico, sem buscar; não inventou resposta, mas também não marcou a recusa. Num caso, corrigiu por conta própria um nome transcrito errado |
+| 2, com as instruções ajustadas | 8 de 8 | 7 de 8 | Num caso, ainda repetiu a busca da pergunta anterior em vez de buscar a nova |
+| 3 e 4, com a regra de buscar a pergunta atual | 8 de 8 | 8 de 8 | Nomes mantidos como estão no material |
+
+As perguntas do assunto tiveram nota de re-ranqueamento de 0,91 a 0,999; as de fora, de 0 a 0,001. O tempo por pergunta ficou entre 1 e 33 s, a maioria entre 5 e 20 s. A mais lenta foi a primeira da rodada 1, que inclui carregar os modelos.
+
+**Verificações complementares**, depois do ajuste:
+
+| Pergunta | Esperado | Obtido |
+|---|---|---|
+| "e o outro?", sem conversa anterior | Pedir esclarecimento | Pediu esclarecimento |
+| "Faça um resumo do material." | Usar a ferramenta de resumo | Usou `resumir_material` |
+| "Sobre o que é esse material?" | Listar os assuntos | Usou `listar_topicos` |
+
+O ajuste feito nas instruções do agente está descrito em [decisoes.md](decisoes.md#d12--arquitetura-agêntica).
+
+---
+
 ## Limitações destes resultados
 
-- **Amostra pequena:** um único material e duas perguntas. Os números mostram a tendência, mas não bastam para calibrar o limiar com segurança.
+- **Amostra pequena:** nos experimentos 1 a 4, um único material e duas perguntas; nos testes com 8 materiais, 16 perguntas principais. Os números mostram a tendência, mas não bastam para calibrar o limiar com segurança.
 - **Julgamento de relevância manual:** "está no material" foi avaliado por leitura, sem conjunto rotulado.
-- **Um único tipo de conteúdo:** texto enciclopédico. Transcrições de aula, com fala corrida e erros de reconhecimento, podem se comportar diferente.
-- **Ambiente único:** tempos medidos numa só máquina, em CPU, dentro do Docker Desktop.
-- **Modos com LLM não avaliados:** reformulação e agente ainda não foram executados.
+- **Gravações curtas:** os áudios e vídeos testados têm de 1,6 a 5,8 minutos. Aulas longas, com fala corrida e termos técnicos, podem se comportar diferente.
+- **Ambiente único:** tempos medidos numa só máquina, dentro do Docker Desktop.
+- **Avaliação de qualidade manual:** as respostas do agente foram conferidas por leitura, sem métrica automática.
 
 ## Experimentos planejados
 
 - Calibrar `SIMILARITY_THRESHOLD` com um conjunto maior de perguntas, incluindo perguntas difíceis: do mesmo assunto geral, mas ausentes do material (por exemplo, mitose num curso de fotossíntese).
 - Comparar pipeline e agente com as mesmas perguntas.
 - Comparar resposta extrativa e resposta reformulada.
-- Avaliar o tamanho do modelo Whisper em áudio real de aula.
+- Comparar o Whisper `base` e o `small` em gravações longas de aula.
 - Avaliar com os critérios da proposta: precisão semântica, coerência textual e usabilidade.

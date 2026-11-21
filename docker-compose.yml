@@ -1,5 +1,9 @@
 name: tcc-chatbot
 
+# Sobe tudo com um comando: docker compose up -d --build
+# Interface em http://localhost:8080
+# Com placa de vídeo NVIDIA, some o arquivo docker-compose.gpu.yml (ver README).
+
 services:
   db:
     image: pgvector/pgvector:pg17
@@ -9,8 +13,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-tcc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tcc}
       POSTGRES_DB: ${POSTGRES_DB:-tcc}
-    ports:
-      - "5432:5432"
+    # Sem porta publicada: só a API acessa o banco, pela rede interna do Docker.
+    # Assim não briga com um PostgreSQL que já exista na máquina.
     volumes:
       # Volume nomeado: bind mount do Windows quebra as permissões do Postgres.
       - pgdata:/var/lib/postgresql/data
@@ -20,6 +24,38 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # LLM local (agente e reformulação da resposta), sem custo por uso.
+  # Por padrão roda no processador; com docker-compose.gpu.yml usa a placa NVIDIA.
+  ollama:
+    image: ollama/ollama:0.34.2
+    container_name: tcc_ollama
+    restart: unless-stopped
+    environment:
+      # Mantém o modelo carregado entre perguntas; recarregar custa segundos.
+      OLLAMA_KEEP_ALIVE: "24h"
+    # Sem porta publicada: só a API fala com ele, pela rede interna do Docker.
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Baixa o modelo de linguagem na primeira subida (~3,3 GB) e encerra.
+  # Nas próximas, só confere que ele já está lá — funciona sem internet.
+  ollama-init:
+    image: ollama/ollama:0.34.2
+    container_name: tcc_ollama_init
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-qwen3.5:4b}
+    entrypoint: ["/bin/sh", "-c", "ollama show \"$$LLM_MODEL\" >/dev/null 2>&1 || ollama pull \"$$LLM_MODEL\""]
+    depends_on:
+      ollama:
+        condition: service_healthy
 
   api:
     build:
@@ -32,14 +68,19 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tcc}:${POSTGRES_PASSWORD:-tcc}@db:5432/${POSTGRES_DB:-tcc}
       UPLOAD_DIR: /data/uploads
+      LLM_MODEL: ${LLM_MODEL:-qwen3.5:4b}
       # O backend Xet do HuggingFace falhou no meio do download do reranker
       # (CAS Client Error). Força o download HTTP clássico, que é estável.
       HF_HUB_DISABLE_XET: "1"
+    # Publicada para a documentação interativa (http://localhost:8000/docs)
+    # e para o frontend em modo de desenvolvimento.
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     volumes:
       - ./backend:/app
       - ./data:/data
@@ -47,6 +88,18 @@ services:
       # Sem isso, cada rebuild baixa tudo de novo.
       - modelcache:/root/.cache
 
+  # Interface: o build do Vue servido pelo nginx, que também repassa /api para a API.
+  frontend:
+    build:
+      context: ./frontend
+    container_name: tcc_frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
   modelcache:
+  ollamadata:

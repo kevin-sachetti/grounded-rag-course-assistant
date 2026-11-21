@@ -27,19 +27,16 @@ def _detect_media_type(filename: str, content_type: str | None) -> str:
 
 async def create_material(
     session: AsyncSession,
-    course_id: uuid.UUID,
     filename: str,
     content_type: str | None,
     data: bytes,
 ) -> Material:
     material_id = uuid.uuid4()
-    storage = get_storage()
-    key = f"{course_id}/{material_id}_{filename}"
-    await storage.save(key, data)
+    key = f"{material_id}_{filename}"
+    await get_storage().save(key, data)
 
     material = Material(
         id=material_id,
-        course_id=course_id,
         filename=filename,
         content_type=content_type,
         media_type=_detect_media_type(filename, content_type),
@@ -52,37 +49,34 @@ async def create_material(
     return material
 
 
-async def list_materials(
-    session: AsyncSession, course_id: uuid.UUID
-) -> list[Material]:
-    result = await session.execute(
-        select(Material)
-        .where(Material.course_id == course_id)
-        .order_by(Material.created_at.desc())
-    )
+async def list_materials(session: AsyncSession) -> list[Material]:
+    result = await session.execute(select(Material).order_by(Material.created_at.desc()))
     return list(result.scalars().all())
 
 
-async def get_material(
-    session: AsyncSession, material_id: uuid.UUID
-) -> Material | None:
+async def get_material(session: AsyncSession, material_id: uuid.UUID) -> Material | None:
     return await session.get(Material, material_id)
 
 
-async def purge_material_resources(material: Material) -> None:
-    """Remove o que o material tem fora do banco: os vetores e o arquivo.
-
-    O registro no banco não é tocado aqui — quem chama decide como apagá-lo.
-    """
-    await delete_chunks(material.id, material.chunk_count)
-    await get_storage().delete(material.storage_key)
+async def get_materials(
+    session: AsyncSession, material_ids: list[uuid.UUID]
+) -> list[Material]:
+    if not material_ids:
+        return []
+    result = await session.execute(select(Material).where(Material.id.in_(material_ids)))
+    return list(result.scalars().all())
 
 
 async def delete_material(session: AsyncSession, material_id: uuid.UUID) -> bool:
+    """Apaga o material: vetores, arquivo e registro.
+
+    O banco remove sozinho a ligação com os chats que o usavam (ON DELETE CASCADE).
+    """
     material = await session.get(Material, material_id)
     if material is None:
         return False
-    await purge_material_resources(material)
+    await delete_chunks(material.id, material.chunk_count)
+    await get_storage().delete(material.storage_key)
     await session.delete(material)
     await session.commit()
     return True

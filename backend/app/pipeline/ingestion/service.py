@@ -41,7 +41,7 @@ async def ingest_material(material_id: UUID) -> None:
             text = await asyncio.to_thread(extract_text, material.media_type, path)
             chunks = await asyncio.to_thread(split_text, text)
 
-            await add_chunks(material.course_id, material.id, chunks)
+            await add_chunks(material.id, chunks)
 
             material.text = text
             material.chunk_count = len(chunks)

@@ -1,15 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infra.db import Base
 
 
 class Material(Base):
-    """Um material de estudo enviado pelo educador, vinculado a um curso.
+    """Um material enviado pelo usuário para a biblioteca.
 
+    O material não pertence a um chat: fica na biblioteca e pode ser usado por
+    vários chats ao mesmo tempo (ligação em app/features/chats/models.py).
     O arquivo em si fica no storage; aqui guardamos só os metadados + a chave.
     O campo `status` acompanha o processamento da ingestão (transcrição/embeddings).
     """
@@ -17,9 +19,6 @@ class Material(Base):
     __tablename__ = "materials"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("courses.id", ondelete="CASCADE"), index=True
-    )
     filename: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str | None] = mapped_column(String(150), default=None)
     # audio | video | pdf | text | other

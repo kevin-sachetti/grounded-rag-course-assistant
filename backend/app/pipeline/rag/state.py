@@ -1,19 +1,20 @@
 from typing import TypedDict
 from uuid import UUID
 
-from langchain_core.documents import Document
+from app.pipeline.params import AnswerParams
 
 
 class RagState(TypedDict, total=False):
-    """Estado que passa de nó em nó no grafo do RAG.
+    """Estado que passa de nó em nó no grafo do fluxo fixo.
 
-    total=False: a entrada inicial só precisa de course_id + question;
-    os demais campos vão sendo preenchidos pelos nós ao longo do caminho.
+    total=False: a entrada inicial só precisa de material_ids, question e
+    params; os demais campos vão sendo preenchidos pelos nós.
     """
 
-    course_id: UUID
+    material_ids: list[UUID]  # materiais do chat
     question: str
-    documents: list[Document]  # trechos recuperados
-    scores: list[float]  # relevância de cada trecho (0 a 1, maior = melhor)
+    params: AnswerParams
+    candidates: list[dict]  # trechos com as notas de cada etapa (ver retrieval.py)
+    extractive: str  # versão extrativa: os trechos usados, como estão no material
     answer: str  # a resposta final
-    sources: list[dict]  # de quais trechos a resposta veio
+    refused: bool  # nenhum trecho atingiu o limiar

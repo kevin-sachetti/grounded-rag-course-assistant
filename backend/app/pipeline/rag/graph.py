@@ -1,46 +1,49 @@
 from langgraph.graph import END, START, StateGraph
 
 from app.infra.config import settings
-from app.pipeline.rag.nodes import generate, rerank, respond_raw, retrieve
+from app.pipeline.rag.nodes import generate, refuse, rerank, respond_raw, retrieve
 from app.pipeline.rag.state import RagState
+from app.pipeline.retrieval import kept
 
 
-def _after_retrieve(state: RagState) -> str:
-    """Passa pelo re-ranking (2º estágio) ou vai direto responder."""
-    return "rerank" if settings.use_reranker else _answer_node()
-
-
-def _answer_node(state: RagState | None = None) -> str:
-    """Resposta reformulada pelo LLM ou os trechos crus."""
+def _answer_node(state: RagState) -> str:
+    """Recusa se nenhum trecho foi aceito; senão, resposta com ou sem LLM."""
+    if not kept(state.get("candidates", [])):
+        return "refuse"
     return "generate" if settings.use_llm_reformulation else "respond_raw"
 
 
+def _after_retrieve(state: RagState) -> str:
+    """Passa pelo re-ranqueamento (2º estágio) ou vai direto responder."""
+    return "rerank" if state["params"].use_reranker else _answer_node(state)
+
+
 def _build_graph():
-    """Fluxo: recuperar → (reordenar) → responder.
+    """Fluxo fixo: recuperar → (reordenar) → recusar ou responder.
 
-    retrieve  1º estágio, busca vetorial ampla (rápida, pouco precisa)
-    rerank    2º estágio, cross-encoder reordena (preciso, mais lento)
-    generate  resposta reformulada pelo LLM
+    retrieve     1º estágio, busca vetorial ampla (rápida, pouco precisa)
+    rerank       2º estágio, cross-encoder reordena (preciso, mais lento)
+    refuse       nenhum trecho atingiu o limiar de relevância
+    generate     resposta reformulada pelo LLM
     respond_raw  resposta extrativa, sem LLM
-
-    A recusa por baixa similaridade (settings.similarity_threshold) entra
-    depois, usando a nota do re-ranker — que separa bem melhor que a do e5.
     """
     builder = StateGraph(RagState)
 
     builder.add_node("retrieve", retrieve)
     builder.add_node("rerank", rerank)
+    builder.add_node("refuse", refuse)
     builder.add_node("respond_raw", respond_raw)
     builder.add_node("generate", generate)
 
     builder.add_edge(START, "retrieve")
 
-    answer_paths = {"generate": "generate", "respond_raw": "respond_raw"}
+    answer_paths = {"refuse": "refuse", "generate": "generate", "respond_raw": "respond_raw"}
     builder.add_conditional_edges(
         "retrieve", _after_retrieve, {"rerank": "rerank", **answer_paths}
     )
     builder.add_conditional_edges("rerank", _answer_node, answer_paths)
 
+    builder.add_edge("refuse", END)
     builder.add_edge("respond_raw", END)
     builder.add_edge("generate", END)
 

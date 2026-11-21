@@ -26,6 +26,8 @@ dependencies = [
     "langgraph>=1.2",
 
     # Provedores de LLM (usados pelo agente e pela reformulação da resposta)
+    # Ollama = LLM aberto rodando localmente, sem custo por uso.
+    "langchain-ollama>=1.0",
     "langchain-openai>=1.0",
     "langchain-anthropic>=1.0",
 

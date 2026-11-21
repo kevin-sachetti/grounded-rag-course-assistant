@@ -7,14 +7,15 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from app.adapters.llm import get_llm
 from app.pipeline.agent.prompts import SYSTEM_PROMPT
 from app.pipeline.agent.tools import build_tools
+from app.pipeline.params import AnswerParams
 
 
-def build_agent(course_id: UUID) -> tuple[object, list[dict]]:
-    """Monta o agente para um curso e devolve (grafo, coletor de fontes).
+def build_agent(material_ids: list[UUID], params: AnswerParams) -> tuple[object, dict]:
+    """Monta o agente para um chat e devolve (grafo, registro do processamento).
 
     O grafo é montado por requisição — de propósito. As ferramentas ficam
-    presas ao curso e a um coletor de fontes próprio, então uma requisição
-    nunca enxerga o material ou as fontes de outra. Montar é barato: os
+    presas aos materiais do chat e a um registro próprio, então uma requisição
+    nunca enxerga o material ou o processamento de outra. Montar é barato: os
     modelos pesados ficam em cache separado, fora daqui.
 
     Fluxo (é aqui que está a autonomia):
@@ -26,11 +27,11 @@ def build_agent(course_id: UUID) -> tuple[object, list[dict]]:
 
     O agente escolhe QUAL ferramenta usar, pode chamar várias, e repete o
     ciclo até se dar por satisfeito. Nenhuma ferramenta enxerga nada além
-    do material do curso — a autonomia é de estratégia, não de fonte.
+    dos materiais do chat — a autonomia é de estratégia, não de fonte.
     """
-    sources: list[dict] = []
-    tools = build_tools(course_id, sources)
-    llm = get_llm().bind_tools(tools)
+    trace: dict = {"steps": [], "searches": []}
+    tools = build_tools(material_ids, params, trace)
+    llm = get_llm(params.temperature).bind_tools(tools)
 
     async def agent(state: MessagesState) -> dict:
         messages = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
@@ -47,4 +48,4 @@ def build_agent(course_id: UUID) -> tuple[object, list[dict]]:
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")
 
-    return builder.compile(), sources
+    return builder.compile(), trace

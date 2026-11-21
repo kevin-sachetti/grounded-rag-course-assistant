@@ -6,14 +6,13 @@ from sqlalchemy import text
 
 from app.infra.config import settings
 
-from app.features.chat.router import router as chat_router
-from app.features.courses.router import router as courses_router
+from app.features.chats.router import router as chats_router
 from app.features.materials.router import router as materials_router
 from app.infra.db import Base, engine
 from app.infra.logging import setup_logging
 
 # Importa os modelos para que fiquem registrados em Base.metadata antes do create_all.
-from app.features.courses import models as _courses_models  # noqa: F401
+from app.features.chats import models as _chats_models  # noqa: F401
 from app.features.materials import models as _materials_models  # noqa: F401
 
 
@@ -30,8 +29,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Chatbot Educacional Customizável — TCC",
-    version="0.1.0",
+    title="Grounded RAG Assistant",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -43,14 +42,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(courses_router)
 app.include_router(materials_router)
-app.include_router(chat_router)
+app.include_router(chats_router)
 
 
 @app.get("/")
 async def root():
-    return {"app": "Chatbot Educacional Customizável (TCC)", "docs": "/docs"}
+    return {"app": "Grounded RAG Assistant", "docs": "/docs"}
 
 
 @app.get("/health")

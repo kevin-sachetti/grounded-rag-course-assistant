@@ -4,78 +4,77 @@ from langchain_core.tools import tool
 from sqlalchemy import select
 
 from app.features.materials.models import Material
-from app.infra.config import settings
 from app.infra.db import SessionLocal
-from app.pipeline.retrieval import search_and_rerank
+from app.pipeline.params import AnswerParams
+from app.pipeline.retrieval import kept, relevance, search_two_stages
 
 # Limite de texto devolvido pela ferramenta de resumo. Materiais longos
 # (uma aula de duas horas transcrita) estourariam a janela do modelo.
 _MAX_SUMMARY_CHARS = 12000
 
+NOTHING_FOUND = (
+    "NADA RELEVANTE ENCONTRADO no material para essa pergunta. "
+    "Não responda por conhecimento próprio."
+)
 
-def build_tools(course_id: UUID, sources_out: list[dict]) -> list:
-    """Monta as ferramentas do agente já presas a um curso.
 
-    O course_id NÃO é parâmetro de ferramenta: ele é fixado aqui, por fora.
-    Assim o modelo não tem como pedir material de outro curso — a restrição
-    é estrutural, não depende do comportamento do LLM.
+def build_tools(material_ids: list[UUID], params: AnswerParams, trace: dict) -> list:
+    """Monta as ferramentas do agente já presas aos materiais de um chat.
 
-    Todas as ferramentas leem apenas o material deste curso. Nenhuma tem
-    acesso a conhecimento externo.
+    Os material_ids NÃO são parâmetro de ferramenta: são fixados aqui, por fora.
+    Assim o modelo não tem como pedir material que não pertence ao chat — a
+    restrição é estrutural, não depende do comportamento do LLM.
 
-    `sources_out` acumula os trechos efetivamente usados, para a resposta
-    poder citar as fontes. É criado por requisição, nunca compartilhado.
+    Todas as ferramentas leem apenas esses materiais. Nenhuma tem acesso a
+    conhecimento externo.
+
+    `trace` registra o que o agente fez, para o painel "entender a resposta":
+    trace["steps"]     cada ferramenta chamada, na ordem, com a entrada
+    trace["searches"]  cada busca, com todos os candidatos e suas notas
+    É criado por requisição, nunca compartilhado.
     """
+
+    def log(tool_name: str, tool_input: str) -> None:
+        trace["steps"].append({"tool": tool_name, "input": tool_input})
+
+    async def load_materials() -> list[Material]:
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(Material).where(Material.id.in_(material_ids))
+            )
+            return list(result.scalars().all())
 
     @tool
     async def buscar_no_material(pergunta: str) -> str:
-        """Busca trechos do material do curso que respondam a uma pergunta.
+        """Busca trechos do material que respondam a uma pergunta.
 
         Use para qualquer dúvida sobre o conteúdo. Se a pergunta tiver mais de
         um assunto, chame uma vez para cada assunto.
         """
-        results = await search_and_rerank(course_id, pergunta)
-        relevantes = [
-            (doc, score)
-            for doc, score in results
-            if score >= settings.similarity_threshold
-        ]
-        if not relevantes:
-            return (
-                "NADA RELEVANTE ENCONTRADO no material do curso para essa "
-                "pergunta. Não responda por conhecimento próprio."
-            )
+        log("buscar_no_material", pergunta)
+        candidates = await search_two_stages(material_ids, pergunta, params)
+        trace["searches"].append({"query": pergunta, "candidates": candidates})
 
-        for doc, score in relevantes:
-            sources_out.append(
-                {
-                    "material_id": doc.metadata.get("material_id"),
-                    "chunk_index": doc.metadata.get("chunk_index"),
-                    "score": score,
-                }
-            )
-
+        usados = kept(candidates)
+        if not usados:
+            return NOTHING_FOUND
         partes = [
-            f"[trecho {i + 1} | relevância {score:.2f}]\n{doc.page_content}"
-            for i, (doc, score) in enumerate(relevantes)
+            f"[trecho {i + 1} | relevância {relevance(c):.2f}]\n{c['text']}"
+            for i, c in enumerate(usados)
         ]
         return "\n\n".join(partes)
 
     @tool
     async def listar_topicos() -> str:
-        """Lista os materiais do curso e sobre o que cada um trata.
+        """Lista os materiais disponíveis e sobre o que cada um trata.
 
-        Use quando o aluno perguntar o que o curso cobre, ou quando precisar
+        Use quando perguntarem o que o material cobre, ou quando precisar
         saber que assuntos existem antes de buscar.
         """
-        async with SessionLocal() as session:
-            result = await session.execute(
-                select(Material).where(Material.course_id == course_id)
-            )
-            materiais = list(result.scalars().all())
-
+        log("listar_topicos", "")
+        materiais = await load_materials()
         if not materiais:
-            return "Este curso ainda não tem material cadastrado."
+            return "Este chat ainda não tem material."
 
         linhas = []
         for m in materiais:
@@ -85,20 +84,20 @@ def build_tools(course_id: UUID, sources_out: list[dict]) -> list:
 
     @tool
     async def resumir_material(nome_do_material: str = "") -> str:
-        """Devolve o texto completo de um material do curso, para resumir.
+        """Devolve o texto completo de um material, para resumir.
 
         Passe o nome do arquivo. Deixe vazio para pegar o primeiro material.
         Use quando pedirem resumo ou visão geral, não para dúvidas pontuais.
         """
-        async with SessionLocal() as session:
-            query = select(Material).where(Material.course_id == course_id)
-            if nome_do_material:
-                query = query.where(Material.filename.ilike(f"%{nome_do_material}%"))
-            result = await session.execute(query)
-            material = result.scalars().first()
-
-        if material is None:
-            return "Material não encontrado neste curso."
+        log("resumir_material", nome_do_material)
+        materiais = await load_materials()
+        if nome_do_material:
+            materiais = [
+                m for m in materiais if nome_do_material.lower() in m.filename.lower()
+            ]
+        if not materiais:
+            return "Material não encontrado neste chat."
+        material = materiais[0]
         if not material.text:
             return f"O material {material.filename} ainda não foi processado."
 
@@ -108,15 +107,18 @@ def build_tools(course_id: UUID, sources_out: list[dict]) -> list:
         return f"Material: {material.filename}\n\n{texto}"
 
     @tool
-    async def pedir_esclarecimento(pergunta_ao_aluno: str) -> str:
-        """Pede que o aluno esclareça uma pergunta ambígua ou vaga demais.
+    async def pedir_esclarecimento(pergunta_ao_usuario: str) -> str:
+        """Pede que o usuário esclareça uma pergunta ambígua ou vaga demais.
 
-        Use apenas quando a pergunta for genuinamente ambígua — não use para
-        fugir de perguntas difíceis nem quando a busca já traz trechos úteis.
+        Use apenas quando a pergunta não tiver assunto identificável — não use
+        para fugir de perguntas difíceis, nem quando a busca já traz trechos
+        úteis, nem para perguntas claras sobre assuntos que parecem fora do
+        material (nesses casos, busque).
         """
+        log("pedir_esclarecimento", pergunta_ao_usuario)
         return (
-            "Devolva exatamente esta pergunta ao aluno, sem acrescentar nada: "
-            f"{pergunta_ao_aluno}"
+            "Devolva exatamente esta pergunta ao usuário, sem acrescentar nada: "
+            f"{pergunta_ao_usuario}"
         )
 
     return [
