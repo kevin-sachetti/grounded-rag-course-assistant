@@ -1,0 +1,36 @@
+# ---- Segredos ----
+.env
+.env.*
+!.env.example
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Dados gerados em execução ----
+# Arquivos enviados pela API. O banco e o cache de modelos ficam em
+# volumes do Docker, fora da pasta do projeto.
+/data/
+
+# ---- Frontend ----
+node_modules/
+frontend/dist/
+
+# ---- Logs ----
+*.log
+
+# ---- IDE / sistema ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

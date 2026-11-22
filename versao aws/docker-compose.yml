@@ -1,0 +1,57 @@
+name: grounded-rag-aws-dev
+
+# Só para testar a versão AWS no computador, sem a AWS:
+#   - DynamoDB Local no lugar do DynamoDB
+#   - moto (emulador de serviços da AWS) no lugar do S3
+#   - o Ollama da versão local no lugar do Bedrock (sem custo)
+#   - sem login (AUTH_DISABLED), com um usuário de teste
+# Exige a versão local de pé (docker compose up na pasta do projeto), por causa do Ollama.
+#
+# Uso: docker compose up -d --build   →  API em http://localhost:8100/docs
+
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:3.3.1
+    container_name: aws_dev_dynamodb
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports:
+      - "8101:8000"
+
+  s3:
+    image: motoserver/moto:5.2.4
+    container_name: aws_dev_s3
+    ports:
+      - "8102:5000"
+
+  api:
+    build:
+      context: ./backend
+    container_name: aws_dev_api
+    entrypoint: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: []
+    environment:
+      LOCAL_DEV: "true"
+      AWS_ENDPOINT_URL_DYNAMODB: http://dynamodb:8000
+      AWS_ENDPOINT_URL_S3: http://s3:5000
+      AWS_PUBLIC_ENDPOINT_URL: http://localhost:8102
+      AWS_ACCESS_KEY_ID: teste
+      AWS_SECRET_ACCESS_KEY: teste
+      AUTH_DISABLED: "true"
+      LLM_PROVIDER: ollama
+      LLM_MODEL: qwen3.5:4b
+      OLLAMA_BASE_URL: http://ollama:11434
+      CORS_ORIGINS: '["http://localhost:5174"]'
+    ports:
+      - "8100:8000"
+    depends_on:
+      - dynamodb
+      - s3
+    networks:
+      - default
+      - local
+
+networks:
+  # Rede da versão local, para usar o Ollama dela.
+  local:
+    name: tcc-chatbot_default
+    external: true

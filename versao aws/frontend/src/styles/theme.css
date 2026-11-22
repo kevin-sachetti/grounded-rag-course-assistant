@@ -1,0 +1,67 @@
+/*
+ * Tema do Grounded RAG Assistant: escuro, neutro e com um toque de terra,
+ * ligado à ideia de raiz ("grounded" = enraizado).
+ * Toda cor, fonte e espaçamento da interface sai daqui.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Fundos, do mais profundo ao mais elevado */
+  --bg: #0e0d0c;
+  --surface: #161513;
+  --surface-2: #1e1c19;
+  --surface-3: #282521;
+
+  /* Linhas e divisões */
+  --border: #2c2925;
+  --border-strong: #3d3933;
+
+  /* Texto */
+  --text: #ebe6de;
+  --text-muted: #9b948a;
+  --text-faint: #6b655d;
+
+  /* Destaque: tom de terra/madeira */
+  --accent: #b48a5c;
+  --accent-strong: #d1a571;
+  --accent-soft: rgba(180, 138, 92, 0.14);
+
+  /* Estados */
+  --danger: #c9675c;
+  --success: #7f9f6a;
+  --leaf: #8fae86; /* trecho usado na resposta */
+  --leaf-soft: rgba(143, 174, 134, 0.14);
+  --refusal: #d4a35f; /* resposta recusada: o material não cobre a pergunta */
+  --refusal-soft: rgba(212, 163, 95, 0.1);
+
+  /* Tipografia */
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Code", Consolas, "Courier New", monospace;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+
+  /* Espaçamentos */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Formas */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+
+  /* Medidas da tela */
+  --sidebar-width: 272px;
+  --chat-max-width: 760px;
+  --brand-icon-size: 220px; /* ícone grande no topo do menu */
+
+  /* Árvore de fundo: presente, sem atrapalhar a leitura */
+  --tree-bg-opacity: 0.1;
+  --fallen-leaves-color-opacity: 0.6; /* folhas secas e verdes do rodapé */
+
+  --transition: 140ms ease;
+}

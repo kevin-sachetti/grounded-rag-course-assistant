@@ -1,0 +1,441 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Grounded RAG Assistant — versão AWS. Site no CloudFront, login no Cognito,
+  API e ingestão em Lambdas (imagem do ECR), dados no DynamoDB e no S3,
+  respostas pelo Amazon Nova Lite no Bedrock. Tudo com a etiqueta
+  projeto=grounded-rag, que o alerta de gasto usa para contar só este projeto.
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: E-mail que recebe o alerta de gasto (o do autor).
+  AdminAlertEmail:
+    Type: String
+    Default: ""
+    Description: E-mail do administrador da conta AWS, que também recebe o alerta (opcional).
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 10
+    Description: Teto de gasto do mês, em dólares.
+
+Conditions:
+  HasAdminEmail: !Not [!Equals [!Ref AdminAlertEmail, ""]]
+
+Globals:
+  Function:
+    Tags:
+      projeto: grounded-rag
+
+Resources:
+  # ---------------------------------------------------------------- dados
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # O navegador envia os arquivos direto ao bucket, com um endereço
+      # assinado pela API (válido por 15 minutos e limitado em tamanho).
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [POST]
+            AllowedOrigins: ["*"]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: user_id, AttributeType: S }]
+      KeySchema: [{ AttributeName: user_id, KeyType: HASH }]
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  MaterialsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: user_id, AttributeType: S }
+        - { AttributeName: material_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: user_id, KeyType: HASH }
+        - { AttributeName: material_id, KeyType: RANGE }
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  ChatsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: user_id, AttributeType: S }
+        - { AttributeName: chat_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: user_id, KeyType: HASH }
+        - { AttributeName: chat_id, KeyType: RANGE }
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: chat_id, AttributeType: S }
+        - { AttributeName: sort_key, AttributeType: S }
+      KeySchema:
+        - { AttributeName: chat_id, KeyType: HASH }
+        - { AttributeName: sort_key, KeyType: RANGE }
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  UsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: month, AttributeType: S }]
+      KeySchema: [{ AttributeName: month, KeyType: HASH }]
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  # ---------------------------------------------------------------- login
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      AccountRecoverySetting:
+        RecoveryMechanisms: [{ Name: verified_email, Priority: 1 }]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      LambdaConfig:
+        PreSignUp: !GetAtt PreSignUpFunction.Arn
+      UserPoolTags:
+        projeto: grounded-rag
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false  # o site é público: o cliente não pode ter segredo
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+
+  # Antes de cada cadastro: recusa se o teto do mês foi atingido. Função
+  # pequena e separada, porque o Cognito espera no máximo 5 segundos.
+  PreSignUpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.14
+      Handler: index.handler
+      Timeout: 5
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_USAGE: !Ref UsageTable
+          BUDGET_USD: !Ref MonthlyBudgetUsd
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref UsageTable }
+      InlineCode: |
+        import os
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import boto3
+
+        table = boto3.resource("dynamodb").Table(os.environ["TABLE_USAGE"])
+
+        def handler(event, context):
+            month = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m")
+            item = table.get_item(Key={"month": month}).get("Item", {})
+            if item.get("blocked") or float(item.get("spent_usd", 0)) >= float(os.environ["BUDGET_USD"]):
+                raise Exception(
+                    "Novos cadastros estão pausados até o próximo mês: o limite de uso da "
+                    "demonstração foi atingido. Para usar sem limites, instale a versão "
+                    "local: https://github.com/kevin-sachetti/grounded-rag-course-assistant"
+                )
+            return event
+
+  PreSignUpPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PreSignUpFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  # ---------------------------------------------------------------- Lambdas da aplicação
+  # A mesma imagem serve à API, à ingestão e à limpeza; muda só a função chamada.
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      MemorySize: 10240  # ~6 processadores: a busca leva ~5,5 s
+      Timeout: 120
+      # O SnapStart guarda a Lambda já com os modelos carregados.
+      SnapStart:
+        ApplyOn: PublishedVersions
+      AutoPublishAlias: live
+      FunctionUrlConfig:
+        # Sem autenticação da AWS na URL: a API exige o token do Cognito em
+        # todas as rotas, menos /health.
+        AuthType: NONE
+      Environment:
+        Variables:
+          TABLE_USERS: !Ref UsersTable
+          TABLE_MATERIALS: !Ref MaterialsTable
+          TABLE_CHATS: !Ref ChatsTable
+          TABLE_MESSAGES: !Ref MessagesTable
+          TABLE_USAGE: !Ref UsageTable
+          DATA_BUCKET: !Ref DataBucket
+          INGEST_FUNCTION: !Ref IngestFunction
+          COGNITO_USER_POOL_ID: !Ref UserPool
+          COGNITO_CLIENT_ID: !Ref UserPoolClient
+          MONTHLY_BUDGET_USD: !Ref MonthlyBudgetUsd
+          API_BASE_PATH: /api
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref UsersTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MaterialsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ChatsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MessagesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
+        - S3CrudPolicy: { BucketName: !Ref DataBucket }
+        - LambdaInvokePolicy: { FunctionName: !Ref IngestFunction }
+        - Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/amazon.nova-lite-v1:0
+            - Effect: Allow
+              Action: cognito-idp:AdminDeleteUser
+              Resource: !GetAtt UserPool.Arn
+    Metadata:
+      DockerContext: ../../backend
+      Dockerfile: Dockerfile
+      DockerTag: v1
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: ["app.lambdas.ingest"]
+      MemorySize: 10240
+      Timeout: 900
+      EphemeralStorage: { Size: 1024 }  # o arquivo é baixado no /tmp
+      Environment:
+        Variables:
+          TABLE_MATERIALS: !Ref MaterialsTable
+          TABLE_USAGE: !Ref UsageTable
+          DATA_BUCKET: !Ref DataBucket
+          PRELOAD_MODELS: "false"
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref MaterialsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
+        - S3CrudPolicy: { BucketName: !Ref DataBucket }
+    Metadata:
+      DockerContext: ../../backend
+      Dockerfile: Dockerfile
+      DockerTag: v1
+
+  # Uma vez por dia: apaga chats e materiais de quem está 30 dias sem entrar.
+  CleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: ["app.lambdas.cleanup"]
+      MemorySize: 1024
+      Timeout: 900
+      Environment:
+        Variables:
+          TABLE_USERS: !Ref UsersTable
+          TABLE_MATERIALS: !Ref MaterialsTable
+          TABLE_CHATS: !Ref ChatsTable
+          TABLE_MESSAGES: !Ref MessagesTable
+          DATA_BUCKET: !Ref DataBucket
+          PRELOAD_MODELS: "false"
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref UsersTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MaterialsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ChatsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MessagesTable }
+        - S3CrudPolicy: { BucketName: !Ref DataBucket }
+      Events:
+        Daily:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 6 * * ? *)  # 3 h da manhã em Brasília
+    Metadata:
+      DockerContext: ../../backend
+      Dockerfile: Dockerfile
+      DockerTag: v1
+
+  # ---------------------------------------------------------------- teto de gasto
+  BudgetTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  BudgetTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref BudgetTopic]
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: budgets.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref BudgetTopic
+
+  # Quando o gasto real passa do teto, bloqueia o mês (perguntas, envios e cadastros).
+  BudgetBlockFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.14
+      Handler: index.handler
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_USAGE: !Ref UsageTable
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
+      Events:
+        Alert:
+          Type: SNS
+          Properties:
+            Topic: !Ref BudgetTopic
+      InlineCode: |
+        import os
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import boto3
+
+        table = boto3.resource("dynamodb").Table(os.environ["TABLE_USAGE"])
+
+        def handler(event, context):
+            month = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m")
+            table.update_item(
+                Key={"month": month},
+                UpdateExpression="SET blocked = :t",
+                ExpressionAttributeValues={":t": True},
+            )
+
+  # Conta só o que tem a etiqueta projeto=grounded-rag. A etiqueta precisa
+  # estar ativada como "etiqueta de alocação de custos" no faturamento.
+  Budget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: grounded-rag-mensal
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUsd, Unit: USD }
+        CostFilters:
+          TagKeyValue: ["user:projeto$grounded-rag"]
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref AlertEmail }
+            - !If [HasAdminEmail, { SubscriptionType: EMAIL, Address: !Ref AdminAlertEmail }, !Ref AWS::NoValue]
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref AlertEmail }
+            - !If [HasAdminEmail, { SubscriptionType: EMAIL, Address: !Ref AdminAlertEmail }, !Ref AWS::NoValue]
+            - { SubscriptionType: SNS, Address: !Ref BudgetTopic }
+
+  # ---------------------------------------------------------------- site
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+
+  SiteOriginAccess:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${AWS::StackName}-site
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub ${SiteBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      Tags: [{ Key: projeto, Value: grounded-rag }]
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_All
+        Origins:
+          - Id: site
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !Ref SiteOriginAccess
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - Id: api
+            # A URL da Lambda vem como https://xxxx.lambda-url.us-east-2.on.aws/
+            DomainName: !Select [2, !Split ["/", !GetAtt ApiFunctionUrl.FunctionUrl]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginReadTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+
+Outputs:
+  SiteUrl:
+    Description: Endereço do site
+    Value: !Sub https://${Distribution.DomainName}
+  DistributionId:
+    Value: !Ref Distribution
+  SiteBucketName:
+    Value: !Ref SiteBucket
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
