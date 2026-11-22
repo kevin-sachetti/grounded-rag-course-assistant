@@ -44,8 +44,7 @@ def health():
     return {"status": "ok"}
 
 
-# Carrega os modelos de busca na inicialização, e não na primeira pergunta.
-# Com o SnapStart, a "foto" da Lambda já sai com eles na memória.
+# Carrega os modelos de busca na inicialização da Lambda, e não na primeira pergunta.
 if settings.preload_models:
     from app.adapters.embeddings import get_embeddings
     from app.adapters.reranker import get_reranker
@@ -53,6 +52,17 @@ if settings.preload_models:
     get_embeddings()
     get_reranker()
 
-# Ponto de entrada da Lambda da API: o Mangum traduz o pedido da Function URL
-# para o FastAPI. `lifespan="off"` porque na AWS não há o que preparar na subida.
-handler = Mangum(app, lifespan="off", api_gateway_base_path=settings.api_base_path)
+# O Mangum traduz o pedido da Function URL para o FastAPI. `lifespan="off"`
+# porque na AWS não há o que preparar na subida.
+_http = Mangum(app, lifespan="off", api_gateway_base_path=settings.api_base_path)
+
+
+def handler(event, context):
+    """Ponto de entrada da Lambda da API.
+
+    O agendamento manda {"warmup": true} a cada 5 minutos só para manter a
+    Lambda carregada, com os modelos na memória; esse pedido não faz nada.
+    """
+    if isinstance(event, dict) and event.get("warmup"):
+        return {"warm": True}
+    return _http(event, context)

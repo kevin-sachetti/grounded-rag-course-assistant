@@ -180,10 +180,14 @@ Resources:
       PackageType: Image
       MemorySize: 10240  # ~6 processadores: a busca leva ~5,5 s
       Timeout: 120
-      # O SnapStart guarda a Lambda já com os modelos carregados.
-      SnapStart:
-        ApplyOn: PublishedVersions
-      AutoPublishAlias: live
+      # Sem SnapStart: com 10 GB, manter a "foto" guardada custaria ~US$ 40/mês.
+      # No lugar, um ping a cada 5 minutos mantém a Lambda carregada (~US$ 0,07/mês).
+      Events:
+        KeepWarm:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Input: '{"warmup": true}'
       FunctionUrlConfig:
         # Sem autenticação da AWS na URL: a API exige o token do Cognito em
         # todas as rotas, menos /health.
