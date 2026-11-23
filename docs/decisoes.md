@@ -209,7 +209,7 @@ A instalação confirmou: nenhuma dependência precisou ser compilada.
 
 **Escolha: 0,6 sobre a nota do re-ranqueador**, como padrão de cada chat. O usuário pode alterar o valor na tela do chat.
 
-**Situação.** Sobre as notas da busca vetorial esse limiar não funciona (experimento 1). Sobre as notas do re-ranqueador ele separa bem os casos testados: mantém 0,99 e 0,98, descarta 0,43 e recusa a pergunta sem relação (0,0003). Nos testes de validação com 8 materiais, as perguntas do assunto tiveram notas de 0,91 a 0,999 e as de fora, de 0 a 0,001.
+**Situação.** Sobre as notas da busca vetorial esse limiar não funciona (experimento 1). Sobre as notas do re-ranqueador ele separa bem os casos testados: mantém 0,99 e 0,98, descarta 0,43 e recusa a pergunta sem relação (0,0003). Nos testes de validação com 8 materiais, as perguntas do assunto tiveram, em geral, notas de 0,91 a 0,999 (em um caso, a melhor nota da busca foi 0,571, e o agente respondeu pela ferramenta de resumo), e as de fora, quando o agente de fato as buscou, de 0 a 0,001.
 
 **Onde é aplicado:** nos dois modos. No fluxo fixo, sem trecho aceito o fluxo vai para a recusa; no agente, a ferramenta de busca devolve o aviso de que nada relevante foi encontrado.
 

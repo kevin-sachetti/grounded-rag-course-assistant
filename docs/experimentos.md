@@ -171,11 +171,11 @@ Verificações de comportamento feitas após correções no backend.
 
 | Rodada | Do assunto respondidas | De fora recusadas | Observação |
 |---|---|---|---|
-| 1 | 8 de 8 | 5 de 8 | Em 3 casos o agente pediu esclarecimento ou respondeu pelo histórico, sem buscar; não inventou resposta, mas também não marcou a recusa. Num caso, corrigiu por conta própria um nome transcrito errado |
-| 2, com as instruções ajustadas | 8 de 8 | 7 de 8 | Num caso, ainda repetiu a busca da pergunta anterior em vez de buscar a nova |
+| 1 | 8 de 8 | 5 de 8 | Em 3 casos o agente não buscou: pediu esclarecimento em 2 e listou os assuntos em 1; não inventou resposta, mas também não marcou a recusa. Num caso, corrigiu por conta própria um nome transcrito errado |
+| 2, com as instruções ajustadas | 8 de 8 | 6 de 8 | Em um caso, respondeu sem buscar; em outro, repetiu a busca da pergunta anterior em vez de buscar a nova |
 | 3 e 4, com a regra de buscar a pergunta atual | 8 de 8 | 8 de 8 | Nomes mantidos como estão no material |
 
-As perguntas do assunto tiveram nota de re-ranqueamento de 0,91 a 0,999; as de fora, de 0 a 0,001. O tempo por pergunta ficou entre 1 e 33 s, a maioria entre 5 e 20 s. A mais lenta foi a primeira da rodada 1, que inclui carregar os modelos.
+As perguntas do assunto tiveram, em geral, nota de re-ranqueamento de 0,91 a 0,999. Em um caso da rodada 4, a melhor nota da busca foi 0,571, e o agente obteve a resposta pela ferramenta de resumo. As de fora, quando o agente de fato as buscou, tiveram de 0 a 0,001. O tempo por pergunta ficou entre 1 e 33 s, a maioria entre 5 e 20 s. A mais lenta foi a primeira da rodada 1, que inclui carregar os modelos.
 
 **Verificações complementares**, depois do ajuste:
 
